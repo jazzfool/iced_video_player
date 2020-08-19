@@ -1,6 +1,8 @@
-# Iced Video Player
+# Iced Video Player Widget
 
-Composable component to play videos in Iced applications.
+Composable component to play videos in any Iced application.
+
+<img src=".media/screenshot.png" width="50%" />
 
 ## Overview
 

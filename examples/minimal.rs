@@ -28,7 +28,7 @@ impl Application for App {
                     &std::path::PathBuf::from(file!())
                         .parent()
                         .unwrap()
-                        .join("test.mp4"),
+                        .join("../.media/test.mp4"),
                 )
                 .unwrap(),
                 pause_btn: Default::default(),
