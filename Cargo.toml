@@ -1,0 +1,10 @@
+[package]
+name = "iced_video_player"
+version = "0.1.0"
+authors = ["jazzfool"]
+edition = "2018"
+
+[dependencies]
+iced = { git = "https://github.com/hecrj/iced", features = ["image", "tokio"] }
+ffmpeg-next = "4"
+tokio = { version = "0.2", features = ["rt-threaded", "macros"] }
