@@ -15,14 +15,14 @@ Features:
 Limitations (to be hopefully fixed):
 - Cannot load in-memory video data.
 - Audio playback is not supported.
-- Buffering does not support seeking arbitrarily - you can only seek to buffered frame.
-- FFmpeg is a heavy dependency and overkill (please recommend similar *cross-platform* Rust libraries).
+- Buffering does not support seeking arbitrarily - you can only seek to buffered frames.
+- FFmpeg is a heavy dependency and overkill (open to recommendations for similar *cross-platform* Rust libraries).
 
 The player **does not** come with any surrounding GUI controls, but they should be quite easy to implement should you need them;
 - Play/pause/stop can just be buttons.
 - Seeking can be a slider with an overlay of the thumbnail at the seek time.
 Specifically, the player exposes the buffered frames as images which can be used as thumbnails.
-Through the same API, you can show the user the portions of the video have been buffered.
+Through the same API, you can show the user which portions of the video have been buffered.
 
 ## Example Usage
 
