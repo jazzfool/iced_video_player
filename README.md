@@ -1,28 +1,26 @@
 # Iced Video Player Widget
 
-Composable component to play videos in any Iced application.
+Composable component to play videos in any Iced application built on the excellent GStreamer library.
 
 <img src=".media/screenshot.png" width="50%" />
 
 ## Overview
 
+In general, this supports anything that [`gstreamer/playbin`](https://gstreamer.freedesktop.org/documentation/playback/playbin.html?gi-language=c) supports.
+
 Features:
 - Load video files from any file path **or URL** (support for streaming over network).
-- Non-blocking (off-thread) automatic buffering.
-- Programmatic play/pause/jump.
-- Small (around 250 lines).
+- Video buffering when streaming on a network.
+- Audio support.
+- Programmatic control.
+- Small (around 300 lines).
 
-Limitations (to be hopefully fixed):
-- Cannot load in-memory video data.
-- Audio playback is not supported.
-- Buffering does not support seeking arbitrarily - you can only seek to buffered frames.
-- FFmpeg is a heavy dependency and overkill (open to recommendations for similar *cross-platform* Rust libraries).
+Limitations (hopefully to be fixed):
+- GStreamer is a bit annoying to set up on Windows.
 
-The player **does not** come with any surrounding GUI controls, but they should be quite easy to implement should you need them;
-- Play/pause/stop can just be buttons.
-- Seeking can be a slider with an overlay of the thumbnail at the seek time.
-Specifically, the player exposes the buffered frames as images which can be used as thumbnails.
-Through the same API, you can show the user which portions of the video have been buffered.
+This is a "composable" instead of a `iced::Widget`. This is because `Widget`s don't support subscriptions (yet?). Once Iced gets animation support (i.e. widgets scheduling a time to update), this can become a widget.
+
+The player **does not** come with any surrounding GUI controls, but they should be quite easy to implement should you need them.
 
 ## Example Usage
 
@@ -51,7 +49,7 @@ impl Application for App {
     fn new(_flags: ()) -> (Self, Command<Message>) {
         (
             App {
-                video: VideoPlayer::new(&"my_video.mp4").unwrap(),
+                video: VideoPlayer::new(&url::Url::parse("file:///C:/my_video.mp4").unwrap()).unwrap(),
             },
             Command::none(),
         )
@@ -63,8 +61,9 @@ impl Application for App {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::VideoPlayerMessage(msg) => self.video.update(msg).map(Message::VideoPlayerMessage),
+            Message::VideoPlayerMessage(msg) => self.video.update(msg),
         }
+        Command::none()
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -72,10 +71,14 @@ impl Application for App {
     }
 
     fn view(&mut self) -> Element<Message> {
-        self.video.view()
+        self.video.frame_view().into()
     }
 }
 ```
+
+## Building
+
+Follow the [GStreamer build instructions](https://github.com/sdroege/gstreamer-rs#installation). This should be able to compile on MSVC, MinGW, Linux, and MacOS.
 
 ## License
 

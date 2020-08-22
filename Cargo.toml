@@ -5,6 +5,14 @@ authors = ["jazzfool"]
 edition = "2018"
 
 [dependencies]
-iced = { git = "https://github.com/hecrj/iced", features = ["image", "tokio"] }
-ffmpeg-next = "4"
-tokio = { version = "0.2", features = ["rt-threaded", "macros"] }
+iced = { version = "0.1", features = ["image", "tokio"] } 
+iced_native = "0.2" 
+gstreamer = "0.16" 
+gstreamer-app = "0.16" # appsink 
+glib = "0.10" # gobject traits and error type
+tokio = { version = "0.2", features = ["time", "stream"] }# time subscription (every frame)         
+thiserror = "1" 
+crossbeam-channel = "0.4" 
+url = "2" # media uri
+num-rational = "0.3" # framerates come in rationals
+num-traits = "0.2" # convert rationals to floats (ToPrimitive)
