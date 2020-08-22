@@ -46,6 +46,9 @@ pub struct VideoPlayer {
     frame_rx: crossbeam_channel::Receiver<img::Handle>,
     frame: Option<img::Handle>,
     pause: bool,
+    // if true, then the playback resets to the most recent frame.
+    // set this to true whenever playback is changed (e.g. pause, seek, etc).
+    reset: bool,
 }
 
 impl Drop for VideoPlayer {
@@ -162,6 +165,7 @@ impl VideoPlayer {
             frame_rx,
             frame: None,
             pause: false,
+            reset: true,
         })
     }
 
@@ -201,6 +205,7 @@ impl VideoPlayer {
 
     /// Set if the media is paused or not.
     pub fn set_paused(&mut self, pause: bool) {
+        self.reset = true;
         self.pause = pause;
         self.source
             .set_state(if pause {
@@ -221,6 +226,7 @@ impl VideoPlayer {
     ///
     /// The position is converted to nanoseconds, so any duration with values more significant that nanoseconds is truncated.
     pub fn seek(&mut self, position: std::time::Duration) -> Result<(), Error> {
+        self.reset = true;
         self.source.seek_simple(
             gst::SeekFlags::empty(),
             gst::GenericFormattedValue::Time(gst::ClockTime::from_nseconds(
@@ -254,7 +260,12 @@ impl VideoPlayer {
                     }
                 }
 
-                if let Ok(frame) = self.frame_rx.try_recv() {
+                if self.reset {
+                    self.reset = false;
+                    if let Some(frame) = self.frame_rx.iter().nth(self.frame_rx.len() - 1) {
+                        self.frame = Some(frame);
+                    }
+                } else if let Ok(frame) = self.frame_rx.try_recv() {
                     self.frame = Some(frame);
                 }
             }
