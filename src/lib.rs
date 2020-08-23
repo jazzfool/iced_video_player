@@ -7,6 +7,37 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 
+/// Position in the media.
+pub enum Position {
+    /// Position based on time.
+    ///
+    /// Not the most accurate format for videos.
+    Time(std::time::Duration),
+    /// Position based on nth frame.
+    Frame(u64),
+}
+
+impl From<Position> for gst::GenericFormattedValue {
+    fn from(pos: Position) -> Self {
+        match pos {
+            Position::Time(t) => gst::ClockTime::from_nseconds(t.as_nanos() as _).into(),
+            Position::Frame(f) => gst::format::Default(Some(f)).into(),
+        }
+    }
+}
+
+impl From<std::time::Duration> for Position {
+    fn from(t: std::time::Duration) -> Self {
+        Position::Time(t)
+    }
+}
+
+impl From<u64> for Position {
+    fn from(f: u64) -> Self {
+        Position::Frame(f)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("{0}")]
@@ -45,7 +76,8 @@ pub struct VideoPlayer {
     duration: std::time::Duration,
 
     frame: Arc<Mutex<Option<img::Handle>>>,
-    pause: bool,
+    paused: bool,
+    muted: bool,
 }
 
 impl Drop for VideoPlayer {
@@ -118,8 +150,8 @@ impl VideoPlayer {
 
         source.set_state(gst::State::Playing)?;
 
-        // wait for up to 1 second until the decoder gets the source capabilities
-        source.get_state(gst::ClockTime::from_seconds(1)).0?;
+        // wait for up to 5 seconds until the decoder gets the source capabilities
+        source.get_state(gst::ClockTime::from_seconds(5)).0?;
 
         // extract resolution and framerate
         // TODO(jazzfool): maybe we want to extract some other information too?
@@ -160,7 +192,8 @@ impl VideoPlayer {
             duration,
 
             frame,
-            pause: false,
+            paused: false,
+            muted: false,
         })
     }
 
@@ -183,24 +216,19 @@ impl VideoPlayer {
     }
 
     /// Set if the audio is muted or not, without changing the volume.
-    pub fn set_muted(&mut self, mute: bool) {
-        self.source.set_property("mute", &mute).unwrap();
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+        self.source.set_property("mute", &muted).unwrap();
     }
 
     /// Get if the audio is muted or not.
     pub fn muted(&self) -> bool {
-        // guaranteed to be a boolean
-        self.source
-            .get_property("mute")
-            .unwrap()
-            .get()
-            .unwrap()
-            .unwrap()
+        self.muted
     }
 
     /// Set if the media is paused or not.
     pub fn set_paused(&mut self, pause: bool) {
-        self.pause = pause;
+        self.paused = pause;
         self.source
             .set_state(if pause {
                 gst::State::Paused
@@ -212,24 +240,18 @@ impl VideoPlayer {
 
     /// Get if the media is paused or not.
     pub fn paused(&self) -> bool {
-        self.pause
+        self.paused
     }
 
-    /// Jumps to a specific time in the media.
+    /// Jumps to a specific position in the media.
     /// The seeking is not perfectly accurate.
-    ///
-    /// The position is converted to nanoseconds, so any duration with values more significant that nanoseconds is truncated.
-    pub fn seek(&mut self, position: std::time::Duration) -> Result<(), Error> {
-        self.source.seek_simple(
-            gst::SeekFlags::empty(),
-            gst::GenericFormattedValue::Time(gst::ClockTime::from_nseconds(
-                position.as_nanos() as _
-            )),
-        )?;
+    pub fn seek(&mut self, position: impl Into<Position>) -> Result<(), Error> {
+        self.source
+            .seek_simple(gst::SeekFlags::FLUSH, position.into())?;
         Ok(())
     }
 
-    /// Get the current playback position.
+    /// Get the current playback position in time.
     pub fn position(&self) -> Option<std::time::Duration> {
         std::time::Duration::from_nanos(
             self.source
@@ -257,7 +279,7 @@ impl VideoPlayer {
     }
 
     pub fn subscription(&self) -> Subscription<VideoPlayerMessage> {
-        if !self.pause {
+        if !self.paused {
             time::every(Duration::from_secs_f64(0.5 / self.framerate))
                 .map(|_| VideoPlayerMessage::NextFrame)
         } else {
@@ -280,6 +302,7 @@ impl VideoPlayer {
     }
 }
 
+// until iced 0.2 is released, which has this built-in
 mod time {
     use iced::futures;
 

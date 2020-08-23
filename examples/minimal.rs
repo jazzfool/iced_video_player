@@ -1,4 +1,6 @@
-use iced::{button, executor, Application, Button, Column, Command, Element, Subscription, Text};
+use iced::{
+    button, executor, Application, Button, Column, Command, Element, Row, Subscription, Text,
+};
 use iced_video_player::{VideoPlayer, VideoPlayerMessage};
 
 fn main() {
@@ -65,8 +67,20 @@ impl Application for App {
         Column::new()
             .push(self.video.frame_view())
             .push(
-                Button::new(&mut self.pause_btn, Text::new("Toggle Pause"))
-                    .on_press(Message::TogglePause),
+                Row::new()
+                    .spacing(5)
+                    .push(
+                        Button::new(
+                            &mut self.pause_btn,
+                            Text::new(if self.video.paused() { "Play" } else { "Pause" }),
+                        )
+                        .on_press(Message::TogglePause),
+                    )
+                    .push(Text::new(format!(
+                        "{:#?}s / {:#?}s",
+                        self.video.position().unwrap().as_secs(),
+                        self.video.duration().as_secs()
+                    ))),
             )
             .into()
     }
