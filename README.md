@@ -16,7 +16,7 @@ Features:
 - Small (around 300 lines).
 
 Limitations (hopefully to be fixed):
-- Lazy frame syncing. Playback is usually a few frames and the decoder and audio runs ahead. Seeking is also latent.
+- GStreamer hardware acceleration not working? (leads to choppy playback in some scenarios).
 - GStreamer is a bit annoying to set up on Windows.
 
 This is a "composable" instead of a `iced::Widget`. This is because `Widget`s don't support subscriptions (yet?). Once Iced gets animation support (i.e. widgets scheduling a time to update), this can become a widget.

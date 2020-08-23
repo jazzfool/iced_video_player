@@ -3,6 +3,7 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use iced::{image as img, Image, Subscription};
 use num_traits::ToPrimitive;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -43,12 +44,8 @@ pub struct VideoPlayer {
     framerate: f64,
     duration: std::time::Duration,
 
-    frame_rx: crossbeam_channel::Receiver<img::Handle>,
-    frame: Option<img::Handle>,
+    frame: Arc<Mutex<Option<img::Handle>>>,
     pause: bool,
-    // if true, then the playback resets to the most recent frame.
-    // set this to true whenever playback is changed (e.g. pause, seek, etc).
-    reset: bool,
 }
 
 impl Drop for VideoPlayer {
@@ -63,8 +60,6 @@ impl VideoPlayer {
     /// Create a new video player from a given video which loads from `uri`.
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
-
-        let (frame_tx, frame_rx) = crossbeam_channel::unbounded();
 
         let source = gst::parse_launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=BGRA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
         let source = source.downcast::<gst::Bin>().unwrap();
@@ -86,6 +81,9 @@ impl VideoPlayer {
         let app_sink = bin.get_by_name("app_sink").unwrap();
         let app_sink = app_sink.downcast::<gst_app::AppSink>().unwrap();
 
+        let frame = Arc::new(Mutex::new(None));
+        let frame_ref = Arc::clone(&frame);
+
         app_sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| {
@@ -106,13 +104,12 @@ impl VideoPlayer {
                         .map_err(|_| gst::FlowError::Error)?
                         .ok_or(gst::FlowError::Error)?;
 
-                    frame_tx
-                        .send(img::Handle::from_pixels(
+                    *frame_ref.lock().map_err(|_| gst::FlowError::Error)? =
+                        Some(img::Handle::from_pixels(
                             width as _,
                             height as _,
                             map.as_slice().to_owned(),
-                        ))
-                        .map_err(|_| gst::FlowError::Error)?;
+                        ));
 
                     Ok(gst::FlowSuccess::Ok)
                 })
@@ -162,10 +159,8 @@ impl VideoPlayer {
             .to_f64().unwrap(/* if the video framerate is bad then it would've been implicitly caught far earlier */),
             duration,
 
-            frame_rx,
-            frame: None,
+            frame,
             pause: false,
-            reset: true,
         })
     }
 
@@ -205,7 +200,6 @@ impl VideoPlayer {
 
     /// Set if the media is paused or not.
     pub fn set_paused(&mut self, pause: bool) {
-        self.reset = true;
         self.pause = pause;
         self.source
             .set_state(if pause {
@@ -226,7 +220,6 @@ impl VideoPlayer {
     ///
     /// The position is converted to nanoseconds, so any duration with values more significant that nanoseconds is truncated.
     pub fn seek(&mut self, position: std::time::Duration) -> Result<(), Error> {
-        self.reset = true;
         self.source.seek_simple(
             gst::SeekFlags::empty(),
             gst::GenericFormattedValue::Time(gst::ClockTime::from_nseconds(
@@ -259,22 +252,13 @@ impl VideoPlayer {
                         panic!("{:#?}", err);
                     }
                 }
-
-                if self.reset {
-                    self.reset = false;
-                    if let Some(frame) = self.frame_rx.iter().nth(self.frame_rx.len() - 1) {
-                        self.frame = Some(frame);
-                    }
-                } else if let Ok(frame) = self.frame_rx.try_recv() {
-                    self.frame = Some(frame);
-                }
             }
         }
     }
 
     pub fn subscription(&self) -> Subscription<VideoPlayerMessage> {
         if !self.pause {
-            time::every(Duration::from_secs_f64(1.0 / self.framerate))
+            time::every(Duration::from_secs_f64(0.5 / self.framerate))
                 .map(|_| VideoPlayerMessage::NextFrame)
         } else {
             Subscription::none()
@@ -284,6 +268,8 @@ impl VideoPlayer {
     /// Get the image handle of the current frame.
     pub fn frame_image(&self) -> img::Handle {
         self.frame
+            .lock()
+            .expect("failed to lock frame")
             .clone()
             .unwrap_or_else(|| img::Handle::from_pixels(0, 0, vec![]))
     }
