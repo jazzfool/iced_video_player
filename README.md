@@ -14,6 +14,7 @@ Features:
 - Audio support.
 - Programmatic control.
 - Small (around 300 lines).
+- Capture thumbnails from a set of timestamps.
 
 Limitations (hopefully to be fixed):
 - GStreamer hardware acceleration not working? (leads to choppy playback in some scenarios).

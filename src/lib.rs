@@ -1,13 +1,14 @@
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
-use iced::{image as img, Image, Subscription};
+use iced::{image as img, Command, Image, Subscription};
 use num_traits::ToPrimitive;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 
 /// Position in the media.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Position {
     /// Position based on time.
     ///
@@ -58,11 +59,14 @@ pub enum Error {
     Caps,
     #[error("failed to query media duration or position")]
     Duration,
+    #[error("failed to sync with playback")]
+    Sync,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VideoPlayerMessage {
     NextFrame,
+    EndOfPlayback,
 }
 
 /// Video player which handles multimedia playback.
@@ -76,6 +80,7 @@ pub struct VideoPlayer {
     duration: std::time::Duration,
 
     frame: Arc<Mutex<Option<img::Handle>>>,
+    wait: mpsc::Receiver<()>,
     paused: bool,
     muted: bool,
 }
@@ -116,6 +121,8 @@ impl VideoPlayer {
         let frame = Arc::new(Mutex::new(None));
         let frame_ref = Arc::clone(&frame);
 
+        let (notify, wait) = mpsc::channel();
+
         app_sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| {
@@ -142,6 +149,8 @@ impl VideoPlayer {
                             height as _,
                             map.as_slice().to_owned(),
                         ));
+
+                    notify.send(()).map_err(|_| gst::FlowError::Error)?;
 
                     Ok(gst::FlowSuccess::Ok)
                 })
@@ -192,6 +201,7 @@ impl VideoPlayer {
             duration,
 
             frame,
+            wait,
             paused: false,
             muted: false,
         })
@@ -227,10 +237,10 @@ impl VideoPlayer {
     }
 
     /// Set if the media is paused or not.
-    pub fn set_paused(&mut self, pause: bool) {
-        self.paused = pause;
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
         self.source
-            .set_state(if pause {
+            .set_state(if paused {
                 gst::State::Paused
             } else {
                 gst::State::Playing
@@ -266,15 +276,46 @@ impl VideoPlayer {
         self.duration
     }
 
-    pub fn update(&mut self, message: VideoPlayerMessage) {
+    /// Generates a list of thumbnails based on a set of positions in the media.
+    ///
+    /// Slow; only needs to be called once for each instance.
+    /// It's best to call this at the very start of playback, otherwise the position may shift.
+    pub fn thumbnails(&mut self, positions: &[Position]) -> Result<Vec<img::Handle>, Error> {
+        let paused = self.paused;
+        let pos = self.position().ok_or(Error::Duration)?;
+        self.set_paused(false);
+        let out = positions
+            .iter()
+            .map(|&pos| {
+                self.seek(pos)?;
+                self.wait.recv().map_err(|_| Error::Sync)?;
+                Ok(self.frame_image())
+            })
+            .collect();
+        self.set_paused(paused);
+        self.seek(pos)?;
+        out
+    }
+
+    pub fn update(&mut self, message: VideoPlayerMessage) -> Command<VideoPlayerMessage> {
         match message {
             VideoPlayerMessage::NextFrame => {
+                let mut cmd = Command::none();
                 for msg in self.bus.iter() {
-                    if let gst::MessageView::Error(err) = msg.view() {
-                        panic!("{:#?}", err);
+                    match msg.view() {
+                        gst::MessageView::Error(err) => panic!("{:#?}", err),
+                        gst::MessageView::Eos(_eos) => {
+                            cmd = Command::batch(vec![
+                                cmd,
+                                Command::perform(async {}, |_| VideoPlayerMessage::EndOfPlayback),
+                            ])
+                        }
+                        _ => {}
                     }
                 }
+                cmd
             }
+            _ => Command::none(),
         }
     }
 
