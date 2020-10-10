@@ -95,7 +95,11 @@ impl Drop for VideoPlayer {
 
 impl VideoPlayer {
     /// Create a new video player from a given video which loads from `uri`.
-    pub fn new(uri: &url::Url) -> Result<Self, Error> {
+    ///
+    /// If `live` is set then no duration is queried (as this will result in an error and is non-sensical for live streams).
+    /// Set `live` if the streaming source is indefinite (e.g. a live stream).
+    /// Note that this will cause the duration to be zero.
+    pub fn new(uri: &url::Url, live: bool) -> Result<Self, Error> {
         gst::init()?;
 
         let source = gst::parse_launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=BGRA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
@@ -179,13 +183,17 @@ impl VideoPlayer {
             .map_err(|_| Error::Caps)?
             .ok_or(Error::Caps)?;
 
-        let duration = std::time::Duration::from_nanos(
-            source
-                .query_duration::<gst::ClockTime>()
-                .ok_or(Error::Duration)?
-                .nanoseconds()
-                .ok_or(Error::Duration)?,
-        );
+        let duration = if !live {
+            std::time::Duration::from_nanos(
+                source
+                    .query_duration::<gst::ClockTime>()
+                    .ok_or(Error::Duration)?
+                    .nanoseconds()
+                    .ok_or(Error::Duration)?,
+            )
+        } else {
+            std::time::Duration::from_secs(0)
+        };
 
         Ok(VideoPlayer {
             bus: source.get_bus().unwrap(),

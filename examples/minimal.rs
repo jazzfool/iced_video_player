@@ -36,6 +36,7 @@ impl Application for App {
                             .unwrap(),
                     )
                     .unwrap(),
+                    false,
                 )
                 .unwrap(),
                 pause_btn: Default::default(),
@@ -53,7 +54,9 @@ impl Application for App {
             Message::TogglePause => {
                 self.video.set_paused(!self.video.paused());
             }
-            Message::VideoPlayerMessage(msg) => self.video.update(msg),
+            Message::VideoPlayerMessage(msg) => {
+                self.video.update(msg);
+            }
         }
 
         Command::none()
