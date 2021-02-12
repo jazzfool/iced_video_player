@@ -5,12 +5,12 @@ authors = ["jazzfool"]
 edition = "2018"
 
 [dependencies]
-iced = { version = "0.1", features = ["image", "tokio"] } 
-iced_native = "0.2" 
+iced = { git = "https://github.com/hecrj/iced.git", features = ["image", "tokio"] } 
+iced_native = "0.3.0"
 gstreamer = "0.16" 
 gstreamer-app = "0.16" # appsink 
 glib = "0.10" # gobject traits and error type
-tokio = { version = "0.2", features = ["time", "stream"] }# time subscription (every frame)          
+tokio = { version = "1.2.0", features = ["time"] }
 thiserror = "1" 
 url = "2" # media uri
 num-rational = "0.3" # framerates come in rationals
