@@ -5,7 +5,7 @@ authors = ["jazzfool"]
 edition = "2018"
 
 [dependencies]
-iced = { version = "0.2", features = ["image", "tokio"] } 
+iced = { git = "https://github.com/hecrj/iced.git", features = ["image", "tokio"] } 
 iced_native = "0.3.0"
 gstreamer = "0.16" 
 gstreamer-app = "0.16" # appsink 
