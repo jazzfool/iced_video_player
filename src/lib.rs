@@ -242,16 +242,19 @@ impl VideoPlayer {
         self.muted
     }
 
+    /// Get if the stream ended or not.
     #[inline(always)]
     pub fn eos(&self) -> bool {
         self.is_eos
     }
 
+    /// Get if the media will loop or not.
     #[inline(always)]
     pub fn looping(&self) -> bool {
         self.looping
     }
 
+    /// Set if the media will loop or not.
     #[inline(always)]
     pub fn set_looping(&mut self, looping: bool) {
         self.looping = looping;
@@ -267,6 +270,8 @@ impl VideoPlayer {
             })
             .unwrap(/* state was changed in ctor; state errors caught there */);
         self.paused = paused;
+
+        // Set restart_stream flag to make the stream restart on the next Message::NextFrame
         if self.is_eos && !paused {
             self.restart_stream = true;
         }
@@ -327,12 +332,15 @@ impl VideoPlayer {
         match message {
             VideoPlayerMessage::NextFrame => {
                 let mut cmds = Vec::new();
+
                 let mut restart_stream = false;
                 if self.restart_stream {
                     restart_stream = true;
+                    // Set flag to false to avoid potentially multiple seeks
                     self.restart_stream = false;
                 }
                 let mut eos_pause = false;
+
                 for msg in self.bus.iter() {
                     match msg.view() {
                         gst::MessageView::Error(err) => panic!("{:#?}", err),
@@ -347,6 +355,8 @@ impl VideoPlayer {
                         _ => {}
                     }
                 }
+
+                // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
                 if restart_stream {
                     if let Err(err) = self.restart_stream() {
                         eprintln!("cannot restart stream (can't seek): {:#?}", err);
@@ -355,6 +365,7 @@ impl VideoPlayer {
                     self.is_eos = true;
                     self.set_paused(true);
                 }
+
                 return Command::batch(cmds);
             }
             VideoPlayerMessage::EndOfPlayback => {}
@@ -385,6 +396,7 @@ impl VideoPlayer {
         Image::new(self.frame_image())
     }
 
+    /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
     pub fn restart_stream(&mut self) -> Result<(), Error> {
         self.is_eos = false;
         self.set_paused(false);
