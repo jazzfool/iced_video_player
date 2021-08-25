@@ -3,6 +3,8 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use iced::{image as img, Command, Image, Subscription};
 use num_traits::ToPrimitive;
+use std::convert::identity;
+use std::future;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
@@ -22,7 +24,7 @@ impl From<Position> for gst::GenericFormattedValue {
     fn from(pos: Position) -> Self {
         match pos {
             Position::Time(t) => gst::ClockTime::from_nseconds(t.as_nanos() as _).into(),
-            Position::Frame(f) => gst::format::Default(Some(f)).into(),
+            Position::Frame(f) => gst::format::Default(f).into(),
         }
     }
 }
@@ -69,6 +71,12 @@ pub enum VideoPlayerMessage {
     EndOfPlayback,
 }
 
+impl VideoPlayerMessage {
+    fn into_cmd(self) -> Command<Self> {
+        Command::perform(future::ready(self), identity)
+    }
+}
+
 /// Video player which handles multimedia playback.
 pub struct VideoPlayer {
     bus: gst::Bus,
@@ -83,6 +91,9 @@ pub struct VideoPlayer {
     wait: mpsc::Receiver<()>,
     paused: bool,
     muted: bool,
+    looping: bool,
+    is_eos: bool,
+    restart_stream: bool,
 }
 
 impl Drop for VideoPlayer {
@@ -105,21 +116,16 @@ impl VideoPlayer {
         let source = gst::parse_launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=BGRA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
         let source = source.downcast::<gst::Bin>().unwrap();
 
-        let video_sink: gst::Element = source
-            .get_property("video-sink")
-            .unwrap()
-            .get()
-            .unwrap()
-            .unwrap();
-        let pad = video_sink.get_pads().get(0).cloned().unwrap();
+        let video_sink: gst::Element = source.property("video-sink").unwrap().get().unwrap();
+        let pad = video_sink.pads().get(0).cloned().unwrap();
         let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
         let bin = pad
-            .get_parent_element()
+            .parent_element()
             .unwrap()
             .downcast::<gst::Bin>()
             .unwrap();
 
-        let app_sink = bin.get_by_name("app_sink").unwrap();
+        let app_sink = bin.by_name("app_sink").unwrap();
         let app_sink = app_sink.downcast::<gst_app::AppSink>().unwrap();
 
         let frame = Arc::new(Mutex::new(None));
@@ -131,21 +137,15 @@ impl VideoPlayer {
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| {
                     let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                    let buffer = sample.get_buffer().ok_or(gst::FlowError::Error)?;
+                    let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
 
-                    let pad = sink.get_static_pad("sink").ok_or(gst::FlowError::Error)?;
+                    let pad = sink.static_pad("sink").ok_or(gst::FlowError::Error)?;
 
-                    let caps = pad.get_current_caps().ok_or(gst::FlowError::Error)?;
-                    let s = caps.get_structure(0).ok_or(gst::FlowError::Error)?;
-                    let width = s
-                        .get::<i32>("width")
-                        .map_err(|_| gst::FlowError::Error)?
-                        .ok_or(gst::FlowError::Error)?;
-                    let height = s
-                        .get::<i32>("height")
-                        .map_err(|_| gst::FlowError::Error)?
-                        .ok_or(gst::FlowError::Error)?;
+                    let caps = pad.current_caps().ok_or(gst::FlowError::Error)?;
+                    let s = caps.structure(0).ok_or(gst::FlowError::Error)?;
+                    let width = s.get::<i32>("width").map_err(|_| gst::FlowError::Error)?;
+                    let height = s.get::<i32>("height").map_err(|_| gst::FlowError::Error)?;
 
                     *frame_ref.lock().map_err(|_| gst::FlowError::Error)? =
                         Some(img::Handle::from_pixels(
@@ -164,44 +164,36 @@ impl VideoPlayer {
         source.set_state(gst::State::Playing)?;
 
         // wait for up to 5 seconds until the decoder gets the source capabilities
-        source.get_state(gst::ClockTime::from_seconds(5)).0?;
+        source.state(gst::ClockTime::from_seconds(5)).0?;
 
         // extract resolution and framerate
         // TODO(jazzfool): maybe we want to extract some other information too?
-        let caps = pad.get_current_caps().ok_or(Error::Caps)?;
-        let s = caps.get_structure(0).ok_or(Error::Caps)?;
-        let width = s
-            .get::<i32>("width")
-            .map_err(|_| Error::Caps)?
-            .ok_or(Error::Caps)?;
-        let height = s
-            .get::<i32>("height")
-            .map_err(|_| Error::Caps)?
-            .ok_or(Error::Caps)?;
+        let caps = pad.current_caps().ok_or(Error::Caps)?;
+        let s = caps.structure(0).ok_or(Error::Caps)?;
+        let width = s.get::<i32>("width").map_err(|_| Error::Caps)?;
+        let height = s.get::<i32>("height").map_err(|_| Error::Caps)?;
         let framerate = s
             .get::<gst::Fraction>("framerate")
-            .map_err(|_| Error::Caps)?
-            .ok_or(Error::Caps)?;
+            .map_err(|_| Error::Caps)?;
 
         let duration = if !live {
             std::time::Duration::from_nanos(
                 source
                     .query_duration::<gst::ClockTime>()
                     .ok_or(Error::Duration)?
-                    .nanoseconds()
-                    .ok_or(Error::Duration)?,
+                    .nseconds(),
             )
         } else {
             std::time::Duration::from_secs(0)
         };
 
         Ok(VideoPlayer {
-            bus: source.get_bus().unwrap(),
+            bus: source.bus().unwrap(),
             source,
 
             width,
             height,
-            framerate: num_rational::Rational::new(
+            framerate: num_rational::Rational32::new(
                 *framerate.numer() as _,
                 *framerate.denom() as _,
             )
@@ -212,15 +204,20 @@ impl VideoPlayer {
             wait,
             paused: false,
             muted: false,
+            looping: false,
+            is_eos: false,
+            restart_stream: false,
         })
     }
 
     /// Get the size/resolution of the video as `(width, height)`.
+    #[inline(always)]
     pub fn size(&self) -> (i32, i32) {
         (self.width, self.height)
     }
 
     /// Get the framerate of the video as frames per second.
+    #[inline(always)]
     pub fn framerate(&self) -> f64 {
         self.framerate
     }
@@ -240,13 +237,31 @@ impl VideoPlayer {
     }
 
     /// Get if the audio is muted or not.
+    #[inline(always)]
     pub fn muted(&self) -> bool {
         self.muted
     }
 
+    /// Get if the stream ended or not.
+    #[inline(always)]
+    pub fn eos(&self) -> bool {
+        self.is_eos
+    }
+
+    /// Get if the media will loop or not.
+    #[inline(always)]
+    pub fn looping(&self) -> bool {
+        self.looping
+    }
+
+    /// Set if the media will loop or not.
+    #[inline(always)]
+    pub fn set_looping(&mut self, looping: bool) {
+        self.looping = looping;
+    }
+
     /// Set if the media is paused or not.
     pub fn set_paused(&mut self, paused: bool) {
-        self.paused = paused;
         self.source
             .set_state(if paused {
                 gst::State::Paused
@@ -254,9 +269,16 @@ impl VideoPlayer {
                 gst::State::Playing
             })
             .unwrap(/* state was changed in ctor; state errors caught there */);
+        self.paused = paused;
+
+        // Set restart_stream flag to make the stream restart on the next Message::NextFrame
+        if self.is_eos && !paused {
+            self.restart_stream = true;
+        }
     }
 
     /// Get if the media is paused or not.
+    #[inline(always)]
     pub fn paused(&self) -> bool {
         self.paused
     }
@@ -270,16 +292,17 @@ impl VideoPlayer {
     }
 
     /// Get the current playback position in time.
-    pub fn position(&self) -> Option<std::time::Duration> {
+    pub fn position(&self) -> std::time::Duration {
         std::time::Duration::from_nanos(
             self.source
-                .query_position::<gst::ClockTime>()?
-                .nanoseconds()?,
+                .query_position::<gst::ClockTime>()
+                .map_or(0, |pos| pos.nseconds()),
         )
         .into()
     }
 
     /// Get the media duration.
+    #[inline(always)]
     pub fn duration(&self) -> std::time::Duration {
         self.duration
     }
@@ -289,8 +312,8 @@ impl VideoPlayer {
     /// Slow; only needs to be called once for each instance.
     /// It's best to call this at the very start of playback, otherwise the position may shift.
     pub fn thumbnails(&mut self, positions: &[Position]) -> Result<Vec<img::Handle>, Error> {
-        let paused = self.paused;
-        let pos = self.position().ok_or(Error::Duration)?;
+        let paused = self.paused();
+        let pos = self.position();
         self.set_paused(false);
         let out = positions
             .iter()
@@ -308,28 +331,51 @@ impl VideoPlayer {
     pub fn update(&mut self, message: VideoPlayerMessage) -> Command<VideoPlayerMessage> {
         match message {
             VideoPlayerMessage::NextFrame => {
-                let mut cmd = Command::none();
+                let mut cmds = Vec::new();
+
+                let mut restart_stream = false;
+                if self.restart_stream {
+                    restart_stream = true;
+                    // Set flag to false to avoid potentially multiple seeks
+                    self.restart_stream = false;
+                }
+                let mut eos_pause = false;
+
                 for msg in self.bus.iter() {
                     match msg.view() {
                         gst::MessageView::Error(err) => panic!("{:#?}", err),
                         gst::MessageView::Eos(_eos) => {
-                            cmd = Command::batch(vec![
-                                cmd,
-                                Command::perform(async {}, |_| VideoPlayerMessage::EndOfPlayback),
-                            ])
+                            cmds.push(VideoPlayerMessage::EndOfPlayback.into_cmd());
+                            if self.looping {
+                                restart_stream = true;
+                            } else {
+                                eos_pause = true;
+                            }
                         }
                         _ => {}
                     }
                 }
-                cmd
+
+                // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
+                if restart_stream {
+                    if let Err(err) = self.restart_stream() {
+                        eprintln!("cannot restart stream (can't seek): {:#?}", err);
+                    }
+                } else if eos_pause {
+                    self.is_eos = true;
+                    self.set_paused(true);
+                }
+
+                return Command::batch(cmds);
             }
-            _ => Command::none(),
+            VideoPlayerMessage::EndOfPlayback => {}
         }
+        Command::none()
     }
 
     pub fn subscription(&self) -> Subscription<VideoPlayerMessage> {
-        if !self.paused {
-            time::every(Duration::from_secs_f64(0.5 / self.framerate))
+        if self.restart_stream || (!self.is_eos && !self.paused()) {
+            iced::time::every(Duration::from_secs_f64(0.5 / self.framerate))
                 .map(|_| VideoPlayerMessage::NextFrame)
         } else {
             Subscription::none()
@@ -349,11 +395,12 @@ impl VideoPlayer {
     pub fn frame_view(&mut self) -> Image {
         Image::new(self.frame_image())
     }
-}
 
-// until iced 0.2 is released, which has this built-in
-mod time {
-    pub fn every(duration: std::time::Duration) -> iced::Subscription<std::time::Instant> {
-	iced::time::every(duration)
+    /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
+    pub fn restart_stream(&mut self) -> Result<(), Error> {
+        self.is_eos = false;
+        self.set_paused(false);
+        self.seek(0)?;
+        Ok(())
     }
 }
