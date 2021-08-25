@@ -6,8 +6,8 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-iced = { git = "https://github.com/yusdacra/iced.git", branch = "crust", features = ["image", "tokio"] } 
-iced_native = { git = "https://github.com/yusdacra/iced.git", branch = "crust" }
+iced = { version = "0.3", features = ["image", "tokio"] } 
+iced_native = "0.3"
 gstreamer = "0.17" 
 gstreamer-app = "0.17" # appsink 
 glib = "0.14" # gobject traits and error type
