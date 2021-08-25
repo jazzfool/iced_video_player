@@ -3,15 +3,31 @@ name = "iced_video_player"
 version = "0.1.0"
 authors = ["jazzfool"]
 edition = "2018"
+resolver = "2"
 
 [dependencies]
-iced = { git = "https://github.com/hecrj/iced.git", features = ["image", "tokio"] } 
-iced_native = "0.3.0"
-gstreamer = "0.16" 
-gstreamer-app = "0.16" # appsink 
-glib = "0.10" # gobject traits and error type
-tokio = { version = "1.2.0", features = ["time"] }
+iced = { git = "https://github.com/yusdacra/iced.git", branch = "crust", features = ["image", "tokio"] } 
+iced_native = { git = "https://github.com/yusdacra/iced.git", branch = "crust" }
+gstreamer = "0.17" 
+gstreamer-app = "0.17" # appsink 
+glib = "0.14" # gobject traits and error type
+tokio = { version = "1", features = ["time"] }
 thiserror = "1" 
 url = "2" # media uri
-num-rational = "0.3" # framerates come in rationals
+num-rational = "0.4" # framerates come in rationals
 num-traits = "0.2" # convert rationals to floats (ToPrimitive)
+
+[package.metadata.nix]
+systems = ["x86_64-linux"]
+app = true
+build = true
+runtimeLibs = [
+    "vulkan-loader",
+    "wayland",
+    "wayland-protocols",
+    "libxkbcommon",
+    "xorg.libX11",
+    "xorg.libXrandr",
+    "xorg.libXi", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base",
+]
+buildInputs = ["libxkbcommon", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base"]

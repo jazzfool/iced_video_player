@@ -4,18 +4,20 @@ use iced::{
 use iced_video_player::{VideoPlayer, VideoPlayerMessage};
 
 fn main() {
-    App::run(Default::default());
+    App::run(Default::default()).unwrap();
 }
 
 #[derive(Clone, Debug)]
 enum Message {
     TogglePause,
+    ToggleLoop,
     VideoPlayerMessage(VideoPlayerMessage),
 }
 
 struct App {
     video: VideoPlayer,
     pause_btn: button::State,
+    loop_btn: button::State,
 }
 
 impl Application for App {
@@ -24,22 +26,24 @@ impl Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
+        let video = VideoPlayer::new(
+            &url::Url::from_file_path(
+                std::path::PathBuf::from(file!())
+                    .parent()
+                    .unwrap()
+                    .join("../.media/test.mp4")
+                    .canonicalize()
+                    .unwrap(),
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap();
         (
             App {
-                video: VideoPlayer::new(
-                    &url::Url::from_file_path(
-                        std::path::PathBuf::from(file!())
-                            .parent()
-                            .unwrap()
-                            .join("../.media/test.mp4")
-                            .canonicalize()
-                            .unwrap(),
-                    )
-                    .unwrap(),
-                    false,
-                )
-                .unwrap(),
+                video,
                 pause_btn: Default::default(),
+                loop_btn: Default::default(),
             },
             Command::none(),
         )
@@ -49,13 +53,16 @@ impl Application for App {
         String::from("Video Player")
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
+    fn update(&mut self, message: Message, _: &mut iced::Clipboard) -> Command<Message> {
         match message {
             Message::TogglePause => {
                 self.video.set_paused(!self.video.paused());
             }
+            Message::ToggleLoop => {
+                self.video.set_looping(!self.video.looping());
+            }
             Message::VideoPlayerMessage(msg) => {
-                self.video.update(msg);
+                return self.video.update(msg).map(Message::VideoPlayerMessage);
             }
         }
 
@@ -79,9 +86,20 @@ impl Application for App {
                         )
                         .on_press(Message::TogglePause),
                     )
+                    .push(
+                        Button::new(
+                            &mut self.loop_btn,
+                            Text::new(if self.video.looping() {
+                                "Disable Loop"
+                            } else {
+                                "Enable Loop"
+                            }),
+                        )
+                        .on_press(Message::ToggleLoop),
+                    )
                     .push(Text::new(format!(
                         "{:#?}s / {:#?}s",
-                        self.video.position().unwrap().as_secs(),
+                        self.video.position().as_secs(),
                         self.video.duration().as_secs()
                     ))),
             )
