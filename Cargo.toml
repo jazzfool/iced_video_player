@@ -6,12 +6,12 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-iced = { version = "0.12", features = ["image", "tokio"] } 
+iced = { version = "0.12", features = ["image", "advanced", "wgpu"] } 
 iced_native = "0.10"
+iced_wgpu = "0.12"
 gstreamer = "0.22" 
 gstreamer-app = "0.22" # appsink 
 glib = "0.19" # gobject traits and error type
-tokio = { version = "1", features = ["time"] }
 thiserror = "1" 
 url = "2" # media uri
 

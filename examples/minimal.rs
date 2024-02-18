@@ -1,9 +1,9 @@
 use iced::{
-    executor,
-    widget::{Button, Column, Row, Text},
-    Application, Command, Element, Subscription, Theme,
+    widget::{Button, Column, Row, Slider, Text},
+    Element, Sandbox,
 };
-use iced_video_player::{VideoPlayer, VideoPlayerMessage};
+use iced_video_player::{Video, VideoPlayer};
+use std::time::Duration;
 
 fn main() {
     App::run(Default::default()).unwrap();
@@ -13,21 +13,23 @@ fn main() {
 enum Message {
     TogglePause,
     ToggleLoop,
-    VideoPlayerMessage(VideoPlayerMessage),
+    Seek(f64),
+    SeekRelease,
+    EndOfStream,
+    NewFrame,
 }
 
 struct App {
-    video: VideoPlayer,
+    video: Video,
+    position: f64,
+    dragging: bool,
 }
 
-impl Application for App {
-    type Executor = executor::Default;
+impl Sandbox for App {
     type Message = Message;
-    type Flags = ();
-    type Theme = Theme;
 
-    fn new(_flags: ()) -> (Self, Command<Message>) {
-        let video = VideoPlayer::new(
+    fn new() -> Self {
+        let video = Video::new(
             &url::Url::from_file_path(
                 std::path::PathBuf::from(file!())
                     .parent()
@@ -40,14 +42,18 @@ impl Application for App {
             false,
         )
         .unwrap();
-        (App { video }, Command::none())
+        App {
+            video,
+            position: 0.0,
+            dragging: false,
+        }
     }
 
     fn title(&self) -> String {
         String::from("Video Player")
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
+    fn update(&mut self, message: Message) {
         match message {
             Message::TogglePause => {
                 self.video.set_paused(!self.video.paused());
@@ -55,21 +61,36 @@ impl Application for App {
             Message::ToggleLoop => {
                 self.video.set_looping(!self.video.looping());
             }
-            Message::VideoPlayerMessage(msg) => {
-                return self.video.update(msg).map(Message::VideoPlayerMessage);
+            Message::Seek(secs) => {
+                self.dragging = true;
+                self.video.set_paused(true);
+                self.position = secs;
+            }
+            Message::SeekRelease => {
+                self.dragging = false;
+                self.video
+                    .seek(Duration::from_secs_f64(self.position))
+                    .expect("seek");
+                self.video.set_paused(false);
+            }
+            Message::EndOfStream => {
+                println!("end of stream");
+            }
+            Message::NewFrame => {
+                if !self.dragging {
+                    self.position = self.video.position().as_secs_f64();
+                }
             }
         }
-
-        Command::none()
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        self.video.subscription().map(Message::VideoPlayerMessage)
     }
 
     fn view(&self) -> Element<Message> {
         Column::new()
-            .push(self.video.frame_view())
+            .push(
+                VideoPlayer::new(&self.video)
+                    .on_end_of_stream(Message::EndOfStream)
+                    .on_new_frame(Message::NewFrame),
+            )
             .push(
                 Row::new()
                     .spacing(5)
@@ -91,9 +112,18 @@ impl Application for App {
                     )
                     .push(Text::new(format!(
                         "{:#?}s / {:#?}s",
-                        self.video.position().as_secs(),
+                        self.position as u64,
                         self.video.duration().as_secs()
-                    ))),
+                    )))
+                    .push(
+                        Slider::new(
+                            0.0..=self.video.duration().as_secs_f64(),
+                            self.position,
+                            Message::Seek,
+                        )
+                        .step(0.1)
+                        .on_release(Message::SeekRelease),
+                    ),
             )
             .into()
     }

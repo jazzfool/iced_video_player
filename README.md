@@ -13,67 +13,47 @@ Features:
 - Video buffering when streaming on a network.
 - Audio support.
 - Programmatic control.
-- Small (around 300 lines).
 - Capture thumbnails from a set of timestamps.
+- Decent performance. Skips a lot of the overhead from Iced `Image` and copies frame data directly to a WGPU texture, and renders using a custom WGPU render pipeline.
+    For a very subjective reference, I can play back 1080p HEVC video with hardware decoding without hitches, in debug mode.
 
 Limitations (hopefully to be fixed):
-- GStreamer hardware acceleration not working? (leads to choppy playback in some scenarios).
 - GStreamer is a bit annoying to set up on Windows.
 
-This is a "composable" instead of a `iced::Widget`. This is because `Widget`s don't support subscriptions (yet?). Once Iced gets animation support (i.e. widgets scheduling a time to update), this can become a widget.
-
 The player **does not** come with any surrounding GUI controls, but they should be quite easy to implement should you need them.
+See the "minimal" example for a demonstration on how you could implement pausing, looping, and seeking.
 
 ## Example Usage
 
 ```rust
-use iced_video_player::{VideoPlayerMessage, VideoPlayer};
-use iced::{executor, Application, Command, Element, Subscription};
+use iced_video_player::{Video, VideoPlayer};
+use iced::{Sandbox, Element};
 
 fn main() {
     App::run(Default::default());
 }
 
-#[derive(Debug)]
-enum Message {
-    VideoPlayerMessage(VideoPlayerMessage),
-}
-
 struct App {
-    video: VideoPlayer,
+    video: Video,
 }
 
-impl Application for App {
-    type Executor = executor::Default;
-    type Message = Message;
-    type Flags = ();
+impl Sandbox for App {
+    type Message = ();
 
-    fn new(_flags: ()) -> (Self, Command<Message>) {
-        (
-            App {
-                video: VideoPlayer::new(&url::Url::parse("file:///C:/my_video.mp4").unwrap()).unwrap(),
-            },
-            Command::none(),
-        )
+    fn new() -> Self {
+        App {
+            video: Video::new(&url::Url::parse("file:///C:/my_video.mp4").unwrap()).unwrap(),
+        }
     }
 
     fn title(&self) -> String {
         String::from("Video Player")
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::VideoPlayerMessage(msg) => self.video.update(msg),
-        }
-        Command::none()
-    }
+    fn update(&mut self, _message: ()) {}
 
-    fn subscription(&self) -> Subscription<Message> {
-        self.video.subscription().map(Message::VideoPlayerMessage)
-    }
-
-    fn view(&mut self) -> Element<Message> {
-        self.video.frame_view().into()
+    fn view(&mut self) -> Element<()> {
+        VideoPlayer::new(&self.video).into()
     }
 }
 ```
