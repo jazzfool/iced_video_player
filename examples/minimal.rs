@@ -1,5 +1,7 @@
 use iced::{
-    button, executor, Application, Button, Column, Command, Element, Row, Subscription, Text,
+    executor,
+    widget::{Button, Column, Row, Text},
+    Application, Command, Element, Subscription, Theme,
 };
 use iced_video_player::{VideoPlayer, VideoPlayerMessage};
 
@@ -16,14 +18,13 @@ enum Message {
 
 struct App {
     video: VideoPlayer,
-    pause_btn: button::State,
-    loop_btn: button::State,
 }
 
 impl Application for App {
     type Executor = executor::Default;
     type Message = Message;
     type Flags = ();
+    type Theme = Theme;
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
         let video = VideoPlayer::new(
@@ -39,21 +40,14 @@ impl Application for App {
             false,
         )
         .unwrap();
-        (
-            App {
-                video,
-                pause_btn: Default::default(),
-                loop_btn: Default::default(),
-            },
-            Command::none(),
-        )
+        (App { video }, Command::none())
     }
 
     fn title(&self) -> String {
         String::from("Video Player")
     }
 
-    fn update(&mut self, message: Message, _: &mut iced::Clipboard) -> Command<Message> {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::TogglePause => {
                 self.video.set_paused(!self.video.paused());
@@ -73,28 +67,26 @@ impl Application for App {
         self.video.subscription().map(Message::VideoPlayerMessage)
     }
 
-    fn view(&mut self) -> Element<Message> {
+    fn view(&self) -> Element<Message> {
         Column::new()
             .push(self.video.frame_view())
             .push(
                 Row::new()
                     .spacing(5)
                     .push(
-                        Button::new(
-                            &mut self.pause_btn,
-                            Text::new(if self.video.paused() { "Play" } else { "Pause" }),
-                        )
+                        Button::new(Text::new(if self.video.paused() {
+                            "Play"
+                        } else {
+                            "Pause"
+                        }))
                         .on_press(Message::TogglePause),
                     )
                     .push(
-                        Button::new(
-                            &mut self.loop_btn,
-                            Text::new(if self.video.looping() {
-                                "Disable Loop"
-                            } else {
-                                "Enable Loop"
-                            }),
-                        )
+                        Button::new(Text::new(if self.video.looping() {
+                            "Disable Loop"
+                        } else {
+                            "Enable Loop"
+                        }))
                         .on_press(Message::ToggleLoop),
                     )
                     .push(Text::new(format!(

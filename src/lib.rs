@@ -1,8 +1,10 @@
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
-use iced::{image as img, Command, Image, Subscription};
-use num_traits::ToPrimitive;
+use iced::{
+    widget::{image as img, Image},
+    Command, Subscription,
+};
 use std::convert::identity;
 use std::future;
 use std::sync::{mpsc, Arc, Mutex};
@@ -24,7 +26,7 @@ impl From<Position> for gst::GenericFormattedValue {
     fn from(pos: Position) -> Self {
         match pos {
             Position::Time(t) => gst::ClockTime::from_nseconds(t.as_nanos() as _).into(),
-            Position::Frame(f) => gst::format::Default(f).into(),
+            Position::Frame(f) => gst::format::Default::from_u64(f).into(),
         }
     }
 }
@@ -113,10 +115,10 @@ impl VideoPlayer {
     pub fn new(uri: &url::Url, live: bool) -> Result<Self, Error> {
         gst::init()?;
 
-        let source = gst::parse_launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=BGRA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
+        let source = gst::parse::launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=RGBA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
         let source = source.downcast::<gst::Bin>().unwrap();
 
-        let video_sink: gst::Element = source.property("video-sink").unwrap().get().unwrap();
+        let video_sink: gst::Element = source.property("video-sink");
         let pad = video_sink.pads().get(0).cloned().unwrap();
         let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
         let bin = pad
@@ -193,11 +195,7 @@ impl VideoPlayer {
 
             width,
             height,
-            framerate: num_rational::Rational32::new(
-                *framerate.numer() as _,
-                *framerate.denom() as _,
-            )
-            .to_f64().unwrap(/* if the video framerate is bad then it would've been implicitly caught far earlier */),
+            framerate: framerate.numer() as f64 / framerate.denom() as f64,
             duration,
 
             frame,
@@ -227,13 +225,13 @@ impl VideoPlayer {
     ///
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
     pub fn set_volume(&mut self, volume: f64) {
-        self.source.set_property("volume", &volume).unwrap(/* this property is guaranteed to exist */);
+        self.source.set_property("volume", &volume);
     }
 
     /// Set if the audio is muted or not, without changing the volume.
     pub fn set_muted(&mut self, muted: bool) {
         self.muted = muted;
-        self.source.set_property("mute", &muted).unwrap();
+        self.source.set_property("mute", &muted);
     }
 
     /// Get if the audio is muted or not.
@@ -286,8 +284,10 @@ impl VideoPlayer {
     /// Jumps to a specific position in the media.
     /// The seeking is not perfectly accurate.
     pub fn seek(&mut self, position: impl Into<Position>) -> Result<(), Error> {
-        self.source
-            .seek_simple(gst::SeekFlags::FLUSH, position.into())?;
+        self.source.seek_simple(
+            gst::SeekFlags::FLUSH,
+            gst::GenericFormattedValue::from(position.into()),
+        )?;
         Ok(())
     }
 
@@ -392,7 +392,7 @@ impl VideoPlayer {
     }
 
     /// Wrap the output of `frame_image` in an `Image` widget.
-    pub fn frame_view(&mut self) -> Image {
+    pub fn frame_view(&self) -> Image<img::Handle> {
         Image::new(self.frame_image())
     }
 
