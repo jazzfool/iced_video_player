@@ -6,7 +6,7 @@ repository = "https://github.com/jazzfool/iced_video_player"
 readme = "README.md"
 keywords = ["gui", "iced", "video"]
 categories = ["gui", "multimedia"]
-version = "0.1.2"
+version = "0.1.3"
 authors = ["jazzfool"]
 edition = "2021"
 resolver = "2"
@@ -43,3 +43,4 @@ buildInputs = ["libxkbcommon", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "
 [package.metadata.docs.rs]
 rustc-args = ["--cfg", "docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
+targets = ["wasm32-unknown-unknown"]
