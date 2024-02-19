@@ -6,7 +6,7 @@ repository = "https://github.com/jazzfool/iced_video_player"
 readme = "README.md"
 keywords = ["gui", "iced", "video"]
 categories = ["gui", "multimedia"]
-version = "0.1.0"
+version = "0.1.1"
 authors = ["jazzfool"]
 edition = "2021"
 resolver = "2"
@@ -39,3 +39,6 @@ runtimeLibs = [
     "xorg.libXi", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base",
 ]
 buildInputs = ["libxkbcommon", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--no-deps"]
