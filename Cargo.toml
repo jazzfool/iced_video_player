@@ -1,9 +1,19 @@
 [package]
 name = "iced_video_player"
+description = "A convenient video player widget for Iced"
+homepage = "https://github.com/jazzfool/iced_video_player"
+repository = "https://github.com/jazzfool/iced_video_player"
+readme = "README.md"
+keywords = ["gui", "iced", "video"]
+categories = ["gui", "multimedia"]
 version = "0.1.0"
 authors = ["jazzfool"]
-edition = "2018"
+edition = "2021"
 resolver = "2"
+license = "MIT OR Apache-2.0"
+exclude = [
+    ".media/test.mp4"
+]
 
 [dependencies]
 iced = { version = "0.12", features = ["image", "advanced", "wgpu"] } 

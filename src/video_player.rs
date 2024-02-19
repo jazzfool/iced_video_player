@@ -8,7 +8,7 @@ use iced_wgpu::primitive::pipeline::Renderer as PrimitiveRenderer;
 use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Duration};
 
-/// Video player which displays the current frame of a [`Video`](crate::Video).
+/// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
 where
     Renderer: PrimitiveRenderer,
@@ -23,6 +23,7 @@ impl<'a, Message, Theme, Renderer> VideoPlayer<'a, Message, Theme, Renderer>
 where
     Renderer: PrimitiveRenderer,
 {
+    /// Creates a new video player widget for a given video.
     pub fn new(video: &'a Video) -> Self {
         VideoPlayer {
             video,
@@ -32,6 +33,7 @@ where
         }
     }
 
+    /// Message to send when the video reaches the end of stream (i.e., the video ends).
     pub fn on_end_of_stream(self, on_end_of_stream: Message) -> Self {
         VideoPlayer {
             on_end_of_stream: Some(on_end_of_stream),
@@ -39,6 +41,7 @@ where
         }
     }
 
+    /// Message to send when the video receives a new frame.
     pub fn on_new_frame(self, on_new_frame: Message) -> Self {
         VideoPlayer {
             on_new_frame: Some(on_new_frame),
