@@ -70,11 +70,19 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let (width, height) = self.video.size();
+        let (width, height) = (width as f32, height as f32);
         let size = limits.resolve(
-            iced::Length::Shrink,
-            iced::Length::Shrink,
-            iced::Size::new(width as _, height as _),
+            iced::Length::Fill,
+            iced::Length::Fill,
+            iced::Size::new(width, height),
         );
+
+        // fixed aspect ratio + never exceed available size
+        let size = if (size.width / size.height) > (width / height) {
+            iced::Size::new(size.height * (width / height), size.height)
+        } else {
+            iced::Size::new(size.width, size.width * (height / width))
+        };
 
         layout::Node::new(size)
     }
