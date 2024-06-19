@@ -104,7 +104,7 @@ where
                 inner.id,
                 Arc::clone(&inner.frame),
                 (inner.width as _, inner.height as _),
-                inner.upload_frame.load(Ordering::SeqCst),
+                inner.upload_frame.swap(false, Ordering::SeqCst),
             ),
         );
     }
