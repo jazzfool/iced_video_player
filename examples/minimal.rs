@@ -39,7 +39,6 @@ impl Sandbox for App {
                     .unwrap(),
             )
             .unwrap(),
-            false,
         )
         .unwrap();
         App {
