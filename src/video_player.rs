@@ -7,6 +7,7 @@ use iced::{
 use iced_wgpu::primitive::pipeline::Renderer as PrimitiveRenderer;
 use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Duration};
+use tracing::error;
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -121,6 +122,7 @@ where
         );
     }
 
+    #[tracing::instrument(skip_all, fields(event = ?event))]
     fn on_event(
         &mut self,
         _state: &mut widget::Tree,
@@ -147,10 +149,9 @@ where
                 for msg in inner.bus.iter() {
                     match msg.view() {
                         gst::MessageView::Error(err) => {
+                            error!("bus returned an error: {err}");
                             if let Some(ref on_error) = self.on_error {
                                 shell.publish(on_error(&err.error()))
-                            } else {
-                                panic!("{:#?}", err)
                             };
                         }
                         gst::MessageView::Eos(_eos) => {
@@ -170,7 +171,7 @@ where
                 // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
                 if restart_stream {
                     if let Err(err) = inner.restart_stream() {
-                        eprintln!("cannot restart stream (can't seek): {:#?}", err);
+                        error!("cannot restart stream (can't seek): {err:#?}")
                     }
                 } else if eos_pause {
                     inner.is_eos = true;
