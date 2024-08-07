@@ -1428,8 +1428,8 @@ dependencies = [
  "iced",
  "iced_native",
  "iced_wgpu",
+ "log",
  "thiserror",
- "tracing",
  "url",
 ]
 

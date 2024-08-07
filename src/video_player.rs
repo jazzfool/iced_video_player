@@ -5,9 +5,9 @@ use iced::{
     Element,
 };
 use iced_wgpu::primitive::pipeline::Renderer as PrimitiveRenderer;
+use log::error;
 use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Duration};
-use tracing::error;
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -122,7 +122,6 @@ where
         );
     }
 
-    #[tracing::instrument(skip_all, fields(event = ?event))]
     fn on_event(
         &mut self,
         _state: &mut widget::Tree,

@@ -23,7 +23,7 @@ gstreamer = "0.22"
 gstreamer-app = "0.22" # appsink 
 gstreamer-base = "0.22" # basesrc
 glib = "0.19" # gobject traits and error type
-tracing = "0.1" # structured logging
+log = "0.4"
 thiserror = "1" 
 url = "2" # media uri
 
