@@ -1,7 +1,9 @@
 use crate::Error;
 use gst::prelude::*;
+use gst_base::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use gstreamer_base as gst_base;
 use iced::widget::image as img;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -44,7 +46,7 @@ pub(crate) struct Internal {
     pub(crate) id: u64,
 
     pub(crate) bus: gst::Bus,
-    pub(crate) source: gst::Bin,
+    pub(crate) source: gst::Pipeline,
 
     pub(crate) width: i32,
     pub(crate) height: i32,
@@ -110,35 +112,45 @@ impl Drop for Video {
 
 impl Video {
     /// Create a new video player from a given video which loads from `uri`.
-    ///
-    /// If `live` is set then no duration is queried (as this will result in an error and is non-sensical for live streams).
-    /// Set `live` if the streaming source is indefinite (e.g. a live stream).
-    /// Note that this will cause the duration to be zero.
-    pub fn new(uri: &url::Url, live: bool) -> Result<Self, Error> {
+    /// Note that live sourced will report the duration to be zero.
+    pub fn new(uri: &url::Url) -> Result<Self, Error> {
+        let pipeline = format!("uridecodebin uri=\"{}\" ! videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=RGBA,pixel-aspect-ratio=1/1", uri.as_str());
+        Self::from_pipeline(pipeline)
+    }
+
+    pub fn from_pipeline<S: AsRef<str>>(pipeline: S) -> Result<Self, Error> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
 
         gst::init()?;
 
-        let source = gst::parse::launch(&format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=app_sink caps=video/x-raw,format=RGBA,pixel-aspect-ratio=1/1\"", uri.as_str()))?;
-        let source = source.downcast::<gst::Bin>().unwrap();
-
-        let video_sink: gst::Element = source.property("video-sink");
-        let pad = video_sink.pads().get(0).cloned().unwrap();
-        let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
-        let bin = pad
-            .parent_element()
-            .unwrap()
-            .downcast::<gst::Bin>()
+        let pipeline = gst::parse::launch(pipeline.as_ref())?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| Error::Cast)?;
+        let mut live = false;
+        pipeline
+            .iterate_sources()
+            .foreach(|elem| {
+                if let Ok(src) = elem.downcast::<gst_base::BaseSrc>() {
+                    if src.is_live() {
+                        live = true;
+                    }
+                }
+            })
             .unwrap();
 
-        let app_sink = bin.by_name("app_sink").unwrap();
-        let app_sink = app_sink.downcast::<gst_app::AppSink>().unwrap();
+        let app_sink_name = "iced_video";
+        let app_sink = pipeline
+            .by_name(app_sink_name)
+            .and_then(|elem| elem.downcast::<gst_app::AppSink>().ok())
+            .ok_or(Error::AppSink(app_sink_name.to_string()))?;
 
-        source.set_state(gst::State::Playing)?;
+        let pad = app_sink.pads().first().cloned().unwrap();
+
+        pipeline.set_state(gst::State::Playing)?;
 
         // wait for up to 5 seconds until the decoder gets the source capabilities
-        source.state(gst::ClockTime::from_seconds(5)).0?;
+        pipeline.state(gst::ClockTime::from_seconds(5)).0?;
 
         // extract resolution and framerate
         // TODO(jazzfool): maybe we want to extract some other information too?
@@ -152,7 +164,7 @@ impl Video {
 
         let duration = if !live {
             std::time::Duration::from_nanos(
-                source
+                pipeline
                     .query_duration::<gst::ClockTime>()
                     .ok_or(Error::Duration)?
                     .nseconds(),
@@ -194,8 +206,8 @@ impl Video {
         Ok(Video(RefCell::new(Internal {
             id,
 
-            bus: source.bus().unwrap(),
-            source,
+            bus: pipeline.bus().unwrap(),
+            source: pipeline,
 
             width,
             height,
@@ -231,14 +243,14 @@ impl Video {
     ///
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
     pub fn set_volume(&mut self, volume: f64) {
-        self.0.borrow().source.set_property("volume", &volume);
+        self.0.borrow().source.set_property("volume", volume);
     }
 
     /// Set if the audio is muted or not, without changing the volume.
     pub fn set_muted(&mut self, muted: bool) {
         let mut inner = self.0.borrow_mut();
         inner.muted = muted;
-        inner.source.set_property("mute", &muted);
+        inner.source.set_property("mute", muted);
     }
 
     /// Get if the audio is muted or not.
@@ -292,7 +304,6 @@ impl Video {
                 .query_position::<gst::ClockTime>()
                 .map_or(0, |pos| pos.nseconds()),
         )
-        .into()
     }
 
     /// Get the media duration.

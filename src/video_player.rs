@@ -5,6 +5,7 @@ use iced::{
     Element,
 };
 use iced_wgpu::primitive::pipeline::Renderer as PrimitiveRenderer;
+use log::error;
 use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Duration};
 
@@ -16,6 +17,7 @@ where
     video: &'a Video,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
+    on_error: Option<Box<dyn Fn(&glib::Error) -> Message + 'a>>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
 
@@ -29,6 +31,7 @@ where
             video,
             on_end_of_stream: None,
             on_new_frame: None,
+            on_error: None,
             _phantom: Default::default(),
         }
     }
@@ -45,6 +48,16 @@ where
     pub fn on_new_frame(self, on_new_frame: Message) -> Self {
         VideoPlayer {
             on_new_frame: Some(on_new_frame),
+            ..self
+        }
+    }
+
+    pub fn on_error<F>(self, on_error: F) -> Self
+    where
+        F: 'a + Fn(&glib::Error) -> Message,
+    {
+        VideoPlayer {
+            on_error: Some(Box::new(on_error)),
             ..self
         }
     }
@@ -134,7 +147,12 @@ where
 
                 for msg in inner.bus.iter() {
                     match msg.view() {
-                        gst::MessageView::Error(err) => panic!("{:#?}", err),
+                        gst::MessageView::Error(err) => {
+                            error!("bus returned an error: {err}");
+                            if let Some(ref on_error) = self.on_error {
+                                shell.publish(on_error(&err.error()))
+                            };
+                        }
                         gst::MessageView::Eos(_eos) => {
                             if let Some(on_end_of_stream) = self.on_end_of_stream.clone() {
                                 shell.publish(on_end_of_stream);
@@ -152,7 +170,7 @@ where
                 // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
                 if restart_stream {
                     if let Err(err) = inner.restart_stream() {
-                        eprintln!("cannot restart stream (can't seek): {:#?}", err);
+                        error!("cannot restart stream (can't seek): {err:#?}")
                     }
                 } else if eos_pause {
                     inner.is_eos = true;

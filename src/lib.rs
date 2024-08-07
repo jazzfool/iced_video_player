@@ -60,6 +60,8 @@ pub enum Error {
     Bool(#[from] glib::BoolError),
     #[error("failed to get the gstreamer bus")]
     Bus,
+    #[error("failed to get AppSink element with name='{0}' from gstreamer pipeline")]
+    AppSink(String),
     #[error("{0}")]
     StateChange(#[from] gst::StateChangeError),
     #[error("failed to cast gstreamer element")]
