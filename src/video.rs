@@ -115,10 +115,10 @@ impl Video {
     /// Note that live sourced will report the duration to be zero.
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         let pipeline = format!("uridecodebin uri=\"{}\" ! videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=RGBA,pixel-aspect-ratio=1/1", uri.as_str());
-        Self::from_pipeline(pipeline)
+        Self::from_pipeline(pipeline, None)
     }
 
-    pub fn from_pipeline<S: AsRef<str>>(pipeline: S) -> Result<Self, Error> {
+    pub fn from_pipeline<S: AsRef<str>>(pipeline: S, is_live: Option<bool>) -> Result<Self, Error> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
 
@@ -127,17 +127,24 @@ impl Video {
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
+
         let mut live = false;
-        pipeline
-            .iterate_sources()
-            .foreach(|elem| {
-                if let Ok(src) = elem.downcast::<gst_base::BaseSrc>() {
-                    if src.is_live() {
-                        live = true;
-                    }
-                }
-            })
-            .unwrap();
+
+        match is_live {
+            Some(is_live) => live = is_live,
+            None => {
+                pipeline
+                    .iterate_sources()
+                    .foreach(|elem| {
+                        if let Ok(src) = elem.downcast::<gst_base::BaseSrc>() {
+                            if src.is_live() {
+                                live = true;
+                            }
+                        }
+                    })
+                    .unwrap();
+            }
+        };
 
         let app_sink_name = "iced_video";
         let app_sink = pipeline
