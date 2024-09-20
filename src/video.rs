@@ -121,10 +121,7 @@ impl Video {
     /// Expects an appsink plugin to be present with name set to `iced_video` and caps to
     /// `video/x-raw,format=RGBA,pixel-aspect-ratio=1/1`
     pub fn from_pipeline<S: AsRef<str>>(pipeline: S, is_live: Option<bool>) -> Result<Self, Error> {
-        if !gst::INITIALIZED.load(Ordering::SeqCst) {
-            gst::init()?;
-        }
-
+        gst::init()?;
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -139,11 +136,9 @@ impl Video {
         pipeline: gst::Pipeline,
         is_live: Option<bool>,
     ) -> Result<Self, Error> {
+        gst::init()?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-        if !gst::INITIALIZED.load(Ordering::SeqCst) {
-            gst::init()?;
-        }
 
         let mut live = false;
 
