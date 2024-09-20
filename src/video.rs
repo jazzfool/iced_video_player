@@ -1,8 +1,7 @@
 use crate::Error;
-use gst::prelude::*;
-use gst_base::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use gstreamer_app::prelude::*;
 use gstreamer_base as gst_base;
 use iced::widget::image as img;
 use std::cell::RefCell;
@@ -118,15 +117,33 @@ impl Video {
         Self::from_pipeline(pipeline, None)
     }
 
+    /// Creates a new video based on GStreamer pipeline in a same format as used in gst-launch-1.0.
+    /// Expects an appsink plugin to be present with name set to `iced_video` and caps to
+    /// `video/x-raw,format=RGBA,pixel-aspect-ratio=1/1`
     pub fn from_pipeline<S: AsRef<str>>(pipeline: S, is_live: Option<bool>) -> Result<Self, Error> {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-
-        gst::init()?;
+        if !gst::INITIALIZED.load(Ordering::SeqCst) {
+            gst::init()?;
+        }
 
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
+
+        Self::from_gst_pipeline(pipeline, is_live)
+    }
+
+    /// Creates a new video based on GStreamer pipeline.
+    /// Expects an appsink plugin to be present with name set to `iced_video` and caps to
+    /// `video/x-raw,format=RGBA,pixel-aspect-ratio=1/1`
+    pub fn from_gst_pipeline(
+        pipeline: gst::Pipeline,
+        is_live: Option<bool>,
+    ) -> Result<Self, Error> {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+        if !gst::INITIALIZED.load(Ordering::SeqCst) {
+            gst::init()?;
+        }
 
         let mut live = false;
 
