@@ -27,32 +27,25 @@ See the "minimal" example for a demonstration on how you could implement pausing
 
 ```rust
 use iced_video_player::{Video, VideoPlayer};
-use iced::{Sandbox, Element};
 
-fn main() {
-    App::run(Default::default());
+fn main() -> iced::Result {
+    iced::run("Video Player", (), App::view)
 }
 
 struct App {
     video: Video,
 }
 
-impl Sandbox for App {
-    type Message = ();
-
-    fn new() -> Self {
+impl Default for App {
+    fn default() -> Self {
         App {
             video: Video::new(&url::Url::parse("file:///C:/my_video.mp4").unwrap()).unwrap(),
         }
     }
+}
 
-    fn title(&self) -> String {
-        String::from("Video Player")
-    }
-
-    fn update(&mut self, _message: ()) {}
-
-    fn view(&mut self) -> Element<()> {
+impl App {
+    fn view(&self) -> iced::Element<()> {
         VideoPlayer::new(&self.video).into()
     }
 }
