@@ -353,7 +353,7 @@ impl Video {
                 // maybe in a small window between seek and wait the old frame comes in?
                 inner.wait.recv().map_err(|_| Error::Sync)?;
                 inner.wait.recv().map_err(|_| Error::Sync)?;
-                Ok(img::Handle::from_pixels(
+                Ok(img::Handle::from_rgba(
                     inner.width as _,
                     inner.height as _,
                     self.0

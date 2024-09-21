@@ -1,4 +1,4 @@
-use iced_wgpu::primitive::pipeline::Primitive;
+use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
 use std::{
     collections::BTreeMap,
@@ -204,7 +204,7 @@ impl VideoPipeline {
         );
     }
 
-    fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: iced::Rectangle) {
+    fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
         if let Some((_, buffer, _)) = self.textures.get(&video_id) {
             let uniforms = Uniforms {
                 rect: [
@@ -227,7 +227,7 @@ impl VideoPipeline {
         &self,
         target: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
-        viewport: iced::Rectangle<u32>,
+        viewport: &iced::Rectangle<u32>,
         video_id: u64,
     ) {
         if let Some((_, _, bind_group)) = self.textures.get(&video_id) {
@@ -288,13 +288,12 @@ impl VideoPrimitive {
 impl Primitive for VideoPrimitive {
     fn prepare(
         &self,
-        format: wgpu::TextureFormat,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        bounds: iced::Rectangle,
-        _target_size: iced::Size<u32>,
-        _scale_factor: f32,
-        storage: &mut iced_wgpu::primitive::pipeline::Storage,
+        format: wgpu::TextureFormat,
+        storage: &mut iced_wgpu::primitive::Storage,
+        bounds: &iced::Rectangle,
+        _viewport: &iced_wgpu::graphics::Viewport,
     ) {
         if !storage.has::<VideoPipeline>() {
             storage.store(VideoPipeline::new(device, format));
@@ -317,13 +316,12 @@ impl Primitive for VideoPrimitive {
 
     fn render(
         &self,
-        storage: &iced_wgpu::primitive::pipeline::Storage,
-        target: &wgpu::TextureView,
-        _target_size: iced::Size<u32>,
-        viewport: iced::Rectangle<u32>,
         encoder: &mut wgpu::CommandEncoder,
+        storage: &iced_wgpu::primitive::Storage,
+        target: &wgpu::TextureView,
+        clip_bounds: &iced::Rectangle<u32>,
     ) {
         let pipeline = storage.get::<VideoPipeline>().unwrap();
-        pipeline.draw(target, encoder, viewport, self.video_id);
+        pipeline.draw(target, encoder, clip_bounds, self.video_id);
     }
 }

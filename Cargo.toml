@@ -6,7 +6,7 @@ repository = "https://github.com/jazzfool/iced_video_player"
 readme = "README.md"
 keywords = ["gui", "iced", "video"]
 categories = ["gui", "multimedia"]
-version = "0.3.0"
+version = "0.4.0"
 authors = ["jazzfool"]
 edition = "2021"
 resolver = "2"
@@ -16,9 +16,9 @@ exclude = [
 ]
 
 [dependencies]
-iced = { version = "0.12", features = ["image", "advanced", "wgpu"] } 
+iced = { version = "0.13", features = ["image", "advanced", "wgpu"] } 
 iced_native = "0.10"
-iced_wgpu = "0.12"
+iced_wgpu = "0.13"
 gstreamer = "0.22" 
 gstreamer-app = "0.22" # appsink 
 gstreamer-base = "0.22" # basesrc

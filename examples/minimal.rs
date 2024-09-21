@@ -1,12 +1,12 @@
 use iced::{
     widget::{Button, Column, Row, Slider, Text},
-    Element, Sandbox,
+    Element,
 };
 use iced_video_player::{Video, VideoPlayer};
 use std::time::Duration;
 
-fn main() {
-    App::run(Default::default()).unwrap();
+fn main() -> iced::Result {
+    iced::run("Iced Video Player", App::update, App::view)
 }
 
 #[derive(Clone, Debug)]
@@ -25,10 +25,8 @@ struct App {
     dragging: bool,
 }
 
-impl Sandbox for App {
-    type Message = Message;
-
-    fn new() -> Self {
+impl Default for App {
+    fn default() -> Self {
         let video = Video::new(
             &url::Url::from_file_path(
                 std::path::PathBuf::from(file!())
@@ -47,11 +45,9 @@ impl Sandbox for App {
             dragging: false,
         }
     }
+}
 
-    fn title(&self) -> String {
-        String::from("Video Player")
-    }
-
+impl App {
     fn update(&mut self, message: Message) {
         match message {
             Message::TogglePause => {
@@ -93,6 +89,8 @@ impl Sandbox for App {
             .push(
                 Row::new()
                     .spacing(5)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .padding(iced::Padding::new(5.0))
                     .push(
                         Button::new(Text::new(if self.video.paused() {
                             "Play"
