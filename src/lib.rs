@@ -10,6 +10,7 @@
 //! use iced_video_player::{Video, VideoPlayer};
 //! use iced::{Sandbox, Element};
 //!
+//! # #![allow(clippy::needless_doctest_main)]
 //! fn main() {
 //!     App::run(Default::default());
 //! }
