@@ -14,8 +14,7 @@ Features:
 - Audio support.
 - Programmatic control.
 - Capture thumbnails from a set of timestamps.
-- Decent performance. Skips a lot of the overhead from Iced `Image` and copies frame data directly to a WGPU texture, and renders using a custom WGPU render pipeline.
-    For a very subjective reference, I can play back 1080p HEVC video with hardware decoding without hitches, in debug mode.
+- Good performance (i.e., comparable to other video players). GStreamer (with the right plugins) will perform hardware-accelerated decoding, and the color space (YUV to RGB) is converted on the GPU whilst rendering the frame.
 
 Limitations (hopefully to be fixed):
 - GStreamer is a bit annoying to set up on Windows.
