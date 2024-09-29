@@ -113,13 +113,13 @@ impl Video {
     /// Create a new video player from a given video which loads from `uri`.
     /// Note that live sourced will report the duration to be zero.
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
-        let pipeline = format!("uridecodebin uri=\"{}\" ! videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,pixel-aspect-ratio=1/1", uri.as_str());
+        let pipeline = format!("uridecodebin uri=\"{}\" ! videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1", uri.as_str());
         Self::from_pipeline(pipeline, None)
     }
 
     /// Creates a new video based on GStreamer pipeline in a same format as used in gst-launch-1.0.
     /// Expects an appsink plugin to be present with name set to `iced_video` and caps to
-    /// `video/x-raw,pixel-aspect-ratio=1/1`
+    /// `video/x-raw,format=NV12,pixel-aspect-ratio=1/1`
     pub fn from_pipeline<S: AsRef<str>>(pipeline: S, is_live: Option<bool>) -> Result<Self, Error> {
         gst::init()?;
         let pipeline = gst::parse::launch(pipeline.as_ref())?
@@ -131,7 +131,7 @@ impl Video {
 
     /// Creates a new video based on GStreamer pipeline.
     /// Expects an appsink plugin to be present with name set to `iced_video` and caps to
-    /// `video/x-raw,pixel-aspect-ratio=1/1`
+    /// `video/x-raw,format=NV12,pixel-aspect-ratio=1/1`
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
         is_live: Option<bool>,
@@ -209,10 +209,9 @@ impl Video {
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
 
-                    frame_ref
-                        .lock()
-                        .map_err(|_| gst::FlowError::Error)?
-                        .copy_from_slice(map.as_slice());
+                    let mut frame_ref = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
+                    let frame_len = frame_ref.len();
+                    frame_ref.copy_from_slice(&map.as_slice()[..frame_len]);
 
                     upload_frame_ref.store(true, Ordering::SeqCst);
 
