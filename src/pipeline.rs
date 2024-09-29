@@ -14,7 +14,7 @@ struct VideoPipeline {
     pipeline: wgpu::RenderPipeline,
     bg0_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    textures: BTreeMap<u64, (wgpu::Texture, wgpu::Buffer, wgpu::BindGroup)>,
+    textures: BTreeMap<u64, (wgpu::Texture, wgpu::Texture, wgpu::Buffer, wgpu::BindGroup)>,
 }
 
 impl VideoPipeline {
@@ -40,11 +40,21 @@ impl VideoPipeline {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -121,7 +131,7 @@ impl VideoPipeline {
         frame: &[u8],
     ) {
         if !self.textures.contains_key(&video_id) {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
+            let texture_y = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("iced_video_player texture"),
                 size: wgpu::Extent3d {
                     width,
@@ -131,12 +141,38 @@ impl VideoPipeline {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: wgpu::TextureFormat::R8Unorm,
                 usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
 
-            let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            let texture_uv = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("iced_video_player texture"),
+                size: wgpu::Extent3d {
+                    width: width / 2,
+                    height: height / 2,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg8Unorm,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+
+            let view_y = texture_y.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("iced_video_player texture view"),
+                format: None,
+                dimension: None,
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer: 0,
+                array_layer_count: None,
+            });
+
+            let view_uv = texture_uv.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("iced_video_player texture view"),
                 format: None,
                 dimension: None,
@@ -160,14 +196,18 @@ impl VideoPipeline {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
+                        resource: wgpu::BindingResource::TextureView(&view_y),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: wgpu::BindingResource::TextureView(&view_uv),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: &buffer,
                             offset: 0,
@@ -178,22 +218,22 @@ impl VideoPipeline {
             });
 
             self.textures
-                .insert(video_id, (texture, buffer, bind_group));
+                .insert(video_id, (texture_y, texture_uv, buffer, bind_group));
         }
 
-        let (texture, _, _) = self.textures.get(&video_id).unwrap();
+        let (texture_y, texture_uv, _, _) = self.textures.get(&video_id).unwrap();
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
-                texture,
+                texture: texture_y,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            frame,
+            &frame[..(width * height) as usize],
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
+                bytes_per_row: Some(width),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {
@@ -202,10 +242,30 @@ impl VideoPipeline {
                 depth_or_array_layers: 1,
             },
         );
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: texture_uv,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &frame[(width * height) as usize..],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(width),
+                rows_per_image: Some(height / 2),
+            },
+            wgpu::Extent3d {
+                width: width / 2,
+                height: height / 2,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
-        if let Some((_, buffer, _)) = self.textures.get(&video_id) {
+        if let Some((_, _, buffer, _)) = self.textures.get(&video_id) {
             let uniforms = Uniforms {
                 rect: [
                     bounds.x,
@@ -230,7 +290,7 @@ impl VideoPipeline {
         viewport: &iced::Rectangle<u32>,
         video_id: u64,
     ) {
-        if let Some((_, _, bind_group)) = self.textures.get(&video_id) {
+        if let Some((_, _, _, bind_group)) = self.textures.get(&video_id) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("iced_video_player render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
