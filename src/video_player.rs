@@ -110,7 +110,9 @@ where
         _cursor: advanced::mouse::Cursor,
         _viewport: &iced::Rectangle,
     ) {
-        let inner = self.video.0.borrow();
+        let inner = self.video.0.borrow_mut();
+        let _ = inner.read_frame();
+
         renderer.draw_primitive(
             layout.bounds(),
             VideoPrimitive::new(
@@ -178,10 +180,9 @@ where
                 }
 
                 let redraw_interval = 1.0 / inner.framerate;
-                let until_redraw =
-                    redraw_interval - (now - inner.next_redraw).as_secs_f64() % redraw_interval;
-                inner.next_redraw = now + Duration::from_secs_f64(until_redraw);
-                shell.request_redraw(iced::window::RedrawRequest::At(inner.next_redraw));
+                shell.request_redraw(iced::window::RedrawRequest::At(
+                    now + Duration::from_secs_f64(redraw_interval),
+                ));
 
                 if let Some(on_new_frame) = self.on_new_frame.clone() {
                     shell.publish(on_new_frame);

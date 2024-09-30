@@ -64,7 +64,7 @@ impl App {
             Message::SeekRelease => {
                 self.dragging = false;
                 self.video
-                    .seek(Duration::from_secs_f64(self.position))
+                    .seek(Duration::from_secs_f64(self.position), false)
                     .expect("seek");
                 self.video.set_paused(false);
             }

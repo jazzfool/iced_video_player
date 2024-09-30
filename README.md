@@ -13,7 +13,7 @@ Features:
 - Video buffering when streaming on a network.
 - Audio support.
 - Programmatic control.
-- Capture thumbnails from a set of timestamps.
+- Can capture thumbnails from a set of timestamps.
 - Good performance (i.e., comparable to other video players). GStreamer (with the right plugins) will perform hardware-accelerated decoding, and the color space (YUV to RGB) is converted on the GPU whilst rendering the frame.
 
 Limitations (hopefully to be fixed):
