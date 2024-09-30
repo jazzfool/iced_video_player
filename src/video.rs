@@ -258,13 +258,11 @@ impl Video {
     }
 
     /// Get the size/resolution of the video as `(width, height)`.
-    #[inline(always)]
     pub fn size(&self) -> (i32, i32) {
         (self.0.borrow().width, self.0.borrow().height)
     }
 
     /// Get the framerate of the video as frames per second.
-    #[inline(always)]
     pub fn framerate(&self) -> f64 {
         self.0.borrow().framerate
     }
@@ -285,25 +283,21 @@ impl Video {
     }
 
     /// Get if the audio is muted or not.
-    #[inline(always)]
     pub fn muted(&self) -> bool {
         self.0.borrow().muted
     }
 
     /// Get if the stream ended or not.
-    #[inline(always)]
     pub fn eos(&self) -> bool {
         self.0.borrow().is_eos
     }
 
     /// Get if the media will loop or not.
-    #[inline(always)]
     pub fn looping(&self) -> bool {
         self.0.borrow().looping
     }
 
     /// Set if the media will loop or not.
-    #[inline(always)]
     pub fn set_looping(&mut self, looping: bool) {
         self.0.get_mut().looping = looping;
     }
@@ -315,7 +309,6 @@ impl Video {
     }
 
     /// Get if the media is paused or not.
-    #[inline(always)]
     pub fn paused(&self) -> bool {
         self.0.borrow().paused
     }
@@ -350,7 +343,6 @@ impl Video {
     }
 
     /// Get the media duration.
-    #[inline(always)]
     pub fn duration(&self) -> std::time::Duration {
         self.0.borrow().duration
     }
@@ -358,6 +350,11 @@ impl Video {
     /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
     pub fn restart_stream(&mut self) -> Result<(), Error> {
         self.0.borrow_mut().restart_stream()
+    }
+
+    /// Get the underlying GStreamer pipeline.
+    pub fn pipeline(&self) -> gst::Pipeline {
+        self.0.borrow().source.clone()
     }
 
     /// Generates a list of thumbnails based on a set of positions in the media.

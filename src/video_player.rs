@@ -2,7 +2,7 @@ use crate::{pipeline::VideoPrimitive, video::Video};
 use gstreamer as gst;
 use iced::{
     advanced::{self, graphics::core::event::Status, layout, widget, Widget},
-    Element,
+    Element, Size,
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
@@ -15,6 +15,9 @@ where
     Renderer: PrimitiveRenderer,
 {
     video: &'a Video,
+    content_fit: iced::ContentFit,
+    width: iced::Length,
+    height: iced::Length,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
     on_error: Option<Box<dyn Fn(&glib::Error) -> Message + 'a>>,
@@ -29,10 +32,37 @@ where
     pub fn new(video: &'a Video) -> Self {
         VideoPlayer {
             video,
+            content_fit: iced::ContentFit::default(),
+            width: iced::Length::Shrink,
+            height: iced::Length::Shrink,
             on_end_of_stream: None,
             on_new_frame: None,
             on_error: None,
             _phantom: Default::default(),
+        }
+    }
+
+    /// Sets the width of the `VideoPlayer` boundaries.
+    pub fn width(self, width: impl Into<iced::Length>) -> Self {
+        VideoPlayer {
+            width: width.into(),
+            ..self
+        }
+    }
+
+    /// Sets the height of the `VideoPlayer` boundaries.
+    pub fn height(self, height: impl Into<iced::Length>) -> Self {
+        VideoPlayer {
+            height: height.into(),
+            ..self
+        }
+    }
+
+    /// Sets the `ContentFit` of the `VideoPlayer`.
+    pub fn content_fit(self, content_fit: iced::ContentFit) -> Self {
+        VideoPlayer {
+            content_fit: content_fit,
+            ..self
         }
     }
 
@@ -82,22 +112,24 @@ where
         _renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let (width, height) = self.video.size();
-        let (width, height) = (width as f32, height as f32);
-        let size = limits.resolve(
-            iced::Length::Fill,
-            iced::Length::Fill,
-            iced::Size::new(width, height),
-        );
+        let (video_width, video_height) = self.video.size();
 
-        // fixed aspect ratio + never exceed available size
-        let size = if (size.width / size.height) > (width / height) {
-            iced::Size::new(size.height * (width / height), size.height)
-        } else {
-            iced::Size::new(size.width, size.width * (height / width))
+        // based on `Image::layout`
+        let image_size = iced::Size::new(video_width as f32, video_height as f32);
+        let raw_size = limits.resolve(self.width, self.height, image_size);
+        let full_size = self.content_fit.fit(image_size, raw_size);
+        let final_size = iced::Size {
+            width: match self.width {
+                iced::Length::Shrink => f32::min(raw_size.width, full_size.width),
+                _ => raw_size.width,
+            },
+            height: match self.height {
+                iced::Length::Shrink => f32::min(raw_size.height, full_size.height),
+                _ => raw_size.height,
+            },
         };
 
-        layout::Node::new(size)
+        layout::Node::new(final_size)
     }
 
     fn draw(

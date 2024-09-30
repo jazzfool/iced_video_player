@@ -1,5 +1,5 @@
 use iced::{
-    widget::{Button, Column, Row, Slider, Text},
+    widget::{Button, Column, Container, Row, Slider, Space, Text},
     Element,
 };
 use iced_video_player::{Video, VideoPlayer};
@@ -82,21 +82,42 @@ impl App {
     fn view(&self) -> Element<Message> {
         Column::new()
             .push(
-                VideoPlayer::new(&self.video)
-                    .on_end_of_stream(Message::EndOfStream)
-                    .on_new_frame(Message::NewFrame),
+                Container::new(
+                    VideoPlayer::new(&self.video)
+                        .width(iced::Length::Shrink)
+                        .height(iced::Length::Shrink)
+                        .content_fit(iced::ContentFit::Contain)
+                        .on_end_of_stream(Message::EndOfStream)
+                        .on_new_frame(Message::NewFrame),
+                )
+                .width(iced::Length::Fill)
+                .height(iced::Length::Fill)
+                .center(iced::Length::Fill),
+            )
+            .push(
+                Container::new(
+                    Slider::new(
+                        0.0..=self.video.duration().as_secs_f64(),
+                        self.position,
+                        Message::Seek,
+                    )
+                    .step(0.1)
+                    .on_release(Message::SeekRelease),
+                )
+                .padding(iced::Padding::new(5.0).left(10.0).right(10.0)),
             )
             .push(
                 Row::new()
                     .spacing(5)
                     .align_y(iced::alignment::Vertical::Center)
-                    .padding(iced::Padding::new(5.0))
+                    .padding(iced::Padding::new(10.0).top(0.0))
                     .push(
                         Button::new(Text::new(if self.video.paused() {
                             "Play"
                         } else {
                             "Pause"
                         }))
+                        .width(80.0)
                         .on_press(Message::TogglePause),
                     )
                     .push(
@@ -105,21 +126,19 @@ impl App {
                         } else {
                             "Enable Loop"
                         }))
+                        .width(120.0)
                         .on_press(Message::ToggleLoop),
                     )
-                    .push(Text::new(format!(
-                        "{:#?}s / {:#?}s",
-                        self.position as u64,
-                        self.video.duration().as_secs()
-                    )))
                     .push(
-                        Slider::new(
-                            0.0..=self.video.duration().as_secs_f64(),
-                            self.position,
-                            Message::Seek,
-                        )
-                        .step(0.1)
-                        .on_release(Message::SeekRelease),
+                        Text::new(format!(
+                            "{}:{:02}s / {}:{:02}s",
+                            self.position as u64 / 60,
+                            self.position as u64 % 60,
+                            self.video.duration().as_secs() / 60,
+                            self.video.duration().as_secs() % 60,
+                        ))
+                        .width(iced::Length::Fill)
+                        .align_x(iced::alignment::Horizontal::Right),
                     ),
             )
             .into()
