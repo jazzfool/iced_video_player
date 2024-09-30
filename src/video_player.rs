@@ -61,7 +61,7 @@ where
     /// Sets the `ContentFit` of the `VideoPlayer`.
     pub fn content_fit(self, content_fit: iced::ContentFit) -> Self {
         VideoPlayer {
-            content_fit: content_fit,
+            content_fit,
             ..self
         }
     }
@@ -145,8 +145,31 @@ where
         let inner = self.video.0.borrow_mut();
         let _ = inner.read_frame();
 
+        // bounds based on `Image::draw`
+        let image_size = iced::Size::new(inner.width as f32, inner.height as f32);
+        let bounds = layout.bounds();
+        let adjusted_fit = self.content_fit.fit(image_size, bounds.size());
+        let scale = iced::Vector::new(
+            adjusted_fit.width / image_size.width,
+            adjusted_fit.height / image_size.height,
+        );
+        let final_size = image_size * scale;
+
+        let position = match self.content_fit {
+            iced::ContentFit::None => iced::Point::new(
+                bounds.x + (image_size.width - adjusted_fit.width) / 2.0,
+                bounds.y + (image_size.height - adjusted_fit.height) / 2.0,
+            ),
+            _ => iced::Point::new(
+                bounds.center_x() - final_size.width / 2.0,
+                bounds.center_y() - final_size.height / 2.0,
+            ),
+        };
+
+        let drawing_bounds = iced::Rectangle::new(position, final_size);
+
         renderer.draw_primitive(
-            layout.bounds(),
+            drawing_bounds,
             VideoPrimitive::new(
                 inner.id,
                 Arc::clone(&inner.frame),

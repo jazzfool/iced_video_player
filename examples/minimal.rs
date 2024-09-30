@@ -1,8 +1,8 @@
 use iced::{
-    widget::{Button, Column, Container, Row, Slider, Space, Text},
+    widget::{image::Handle, Button, Column, Container, Image, Row, Slider, Space, Text},
     Element,
 };
-use iced_video_player::{Video, VideoPlayer};
+use iced_video_player::{Position, Video, VideoPlayer};
 use std::time::Duration;
 
 fn main() -> iced::Result {
@@ -23,11 +23,12 @@ struct App {
     video: Video,
     position: f64,
     dragging: bool,
+    thumb: Handle,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let video = Video::new(
+        let mut video = Video::new(
             &url::Url::from_file_path(
                 std::path::PathBuf::from(file!())
                     .parent()
@@ -39,10 +40,16 @@ impl Default for App {
             .unwrap(),
         )
         .unwrap();
+        let thumb = video
+            .thumbnails(&[Position::Frame(0)])
+            .unwrap()
+            .pop()
+            .unwrap();
         App {
             video,
             position: 0.0,
             dragging: false,
+            thumb,
         }
     }
 }
@@ -84,15 +91,16 @@ impl App {
             .push(
                 Container::new(
                     VideoPlayer::new(&self.video)
-                        .width(iced::Length::Shrink)
-                        .height(iced::Length::Shrink)
+                        .width(iced::Length::Fill)
+                        .height(iced::Length::Fill)
                         .content_fit(iced::ContentFit::Contain)
                         .on_end_of_stream(Message::EndOfStream)
                         .on_new_frame(Message::NewFrame),
                 )
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center)
                 .width(iced::Length::Fill)
-                .height(iced::Length::Fill)
-                .center(iced::Length::Fill),
+                .height(iced::Length::Fill),
             )
             .push(
                 Container::new(
