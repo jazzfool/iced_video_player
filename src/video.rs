@@ -6,6 +6,7 @@ use iced::widget::image as img;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Position in the media.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -55,6 +56,7 @@ pub(crate) struct Internal {
 
     pub(crate) frame: Arc<Mutex<Vec<u8>>>,
     pub(crate) upload_frame: Arc<AtomicBool>,
+    pub(crate) last_frame_time: Arc<Mutex<Instant>>,
     pub(crate) paused: bool,
     pub(crate) muted: bool,
     pub(crate) looping: bool,
@@ -137,6 +139,12 @@ impl Internal {
             self.restart_stream = true;
         }
     }
+
+    /// Syncs audio with video when there is (inevitably) latency presenting the frame.
+    pub(crate) fn set_av_offset(&mut self, offset: Duration) {
+        self.source
+            .set_property("av-offset", -(offset.as_nanos() as i64));
+    }
 }
 
 /// A multimedia video loaded from a URI (e.g., a local file path or HTTP stream).
@@ -164,7 +172,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=NV12\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -184,7 +192,7 @@ impl Video {
     }
 
     /// Creates a new video based on an existing GStreamer pipeline and appsink.
-    /// Expects an `appsink` plugin with `caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1`.
+    /// Expects an `appsink` plugin with `caps=video/x-raw,format=NV12`.
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
         app_sink: gst_app::AppSink,
@@ -226,14 +234,19 @@ impl Video {
         ]));
         let upload_frame = Arc::new(AtomicBool::new(false));
         let alive = Arc::new(AtomicBool::new(true));
+        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
 
+        let pipeline_ref = pipeline.clone();
         let frame_ref = Arc::clone(&frame);
         let upload_frame_ref = Arc::clone(&upload_frame);
         let alive_ref = Arc::clone(&alive);
+        let last_frame_time_ref = Arc::clone(&last_frame_time);
 
         let worker = std::thread::spawn(move || {
             while alive_ref.load(Ordering::Acquire) {
-                std::thread::sleep(std::time::Duration::from_secs_f64(1.0 / framerate));
+                if pipeline_ref.state(None).1 == gst::State::Paused {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(1.0 / framerate));
+                }
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
                     let sample = app_sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
 
@@ -243,6 +256,10 @@ impl Video {
                     let mut frame = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
                     let frame_len = frame.len();
                     frame.copy_from_slice(&map.as_slice()[..frame_len]);
+
+                    *last_frame_time_ref
+                        .lock()
+                        .map_err(|_| gst::FlowError::Error)? = Instant::now();
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
                     Ok(())
@@ -268,6 +285,7 @@ impl Video {
 
             frame,
             upload_frame,
+            last_frame_time,
             paused: false,
             muted: false,
             looping: false,

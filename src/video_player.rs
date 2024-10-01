@@ -6,8 +6,8 @@ use iced::{
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
-use std::sync::Arc;
 use std::{marker::PhantomData, sync::atomic::Ordering};
+use std::{sync::Arc, time::Instant};
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -142,7 +142,7 @@ where
         _cursor: advanced::mouse::Cursor,
         _viewport: &iced::Rectangle,
     ) {
-        let inner = self.video.0.borrow_mut();
+        let mut inner = self.video.0.borrow_mut();
 
         // bounds based on `Image::draw`
         let image_size = iced::Size::new(inner.width as f32, inner.height as f32);
@@ -167,13 +167,24 @@ where
 
         let drawing_bounds = iced::Rectangle::new(position, final_size);
 
+        let upload_frame = inner.upload_frame.swap(false, Ordering::SeqCst);
+
+        if upload_frame {
+            let last_frame_time = inner
+                .last_frame_time
+                .lock()
+                .map(|time| time.clone())
+                .unwrap_or_else(|_| Instant::now());
+            inner.set_av_offset(Instant::now() - last_frame_time);
+        }
+
         renderer.draw_primitive(
             drawing_bounds,
             VideoPrimitive::new(
                 inner.id,
                 Arc::clone(&inner.frame),
                 (inner.width as _, inner.height as _),
-                inner.upload_frame.swap(false, Ordering::SeqCst),
+                upload_frame,
             ),
         );
     }
