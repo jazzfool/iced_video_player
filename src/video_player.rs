@@ -233,13 +233,16 @@ where
                     inner.set_paused(true);
                 }
 
-                let redraw_interval = 1.0 / inner.framerate;
-                shell.request_redraw(iced::window::RedrawRequest::At(
-                    now + Duration::from_secs_f64(redraw_interval),
-                ));
-
-                if let Some(on_new_frame) = self.on_new_frame.clone() {
-                    shell.publish(on_new_frame);
+                if inner.upload_frame.load(Ordering::SeqCst) {
+                    shell.request_redraw(iced::window::RedrawRequest::NextFrame);
+                    if let Some(on_new_frame) = self.on_new_frame.clone() {
+                        shell.publish(on_new_frame);
+                    }
+                } else {
+                    let redraw_interval = 1.0 / inner.framerate;
+                    shell.request_redraw(iced::window::RedrawRequest::At(
+                        now + Duration::from_secs_f64(redraw_interval),
+                    ));
                 }
             }
             Status::Captured

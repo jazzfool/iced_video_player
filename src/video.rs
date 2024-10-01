@@ -209,6 +209,7 @@ impl Video {
         let framerate = s
             .get::<gst::Fraction>("framerate")
             .map_err(|_| Error::Caps)?;
+        let framerate = framerate.numer() as f64 / framerate.denom() as f64;
 
         let duration = std::time::Duration::from_nanos(
             pipeline
@@ -231,7 +232,8 @@ impl Video {
         let alive_ref = Arc::clone(&alive);
 
         let worker = std::thread::spawn(move || {
-            while alive_ref.load(Ordering::SeqCst) {
+            while alive_ref.load(Ordering::Acquire) {
+                std::thread::sleep(std::time::Duration::from_secs_f64(1.0 / framerate));
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
                     let sample = app_sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
 
@@ -260,7 +262,7 @@ impl Video {
 
             width,
             height,
-            framerate: framerate.numer() as f64 / framerate.denom() as f64,
+            framerate,
             duration,
             speed: 1.0,
 
