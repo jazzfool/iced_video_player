@@ -16,15 +16,15 @@ exclude = [
 ]
 
 [dependencies]
-iced = { version = "0.13", features = ["image", "advanced", "wgpu"] } 
+iced = { version = "0.13", features = ["image", "advanced", "wgpu"] }
 iced_native = "0.10"
 iced_wgpu = "0.13"
-gstreamer = "0.22" 
-gstreamer-app = "0.22" # appsink 
-gstreamer-base = "0.22" # basesrc
-glib = "0.19" # gobject traits and error type
+gstreamer = "0.23"
+gstreamer-app = "0.23" # appsink
+gstreamer-base = "0.23" # basesrc
+glib = "0.20" # gobject traits and error type
 log = "0.4"
-thiserror = "1" 
+thiserror = "1"
 url = "2" # media uri
 
 [package.metadata.nix]

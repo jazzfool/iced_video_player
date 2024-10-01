@@ -171,7 +171,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoconvert ! videoscale ! appsink name=iced_video caps=video/x-raw,format=NV12\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -213,6 +213,9 @@ impl Video {
         let s = caps.structure(0).ok_or(Error::Caps)?;
         let width = s.get::<i32>("width").map_err(|_| Error::Caps)?;
         let height = s.get::<i32>("height").map_err(|_| Error::Caps)?;
+        // resolution should be mod4
+        let width = ((width + 4 - 1) / 4) * 4;
+        let height = ((height + 4 - 1) / 4) * 4;
         let framerate = s
             .get::<gst::Fraction>("framerate")
             .map_err(|_| Error::Caps)?;
