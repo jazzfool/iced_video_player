@@ -308,6 +308,7 @@ impl Video {
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
     pub fn set_volume(&mut self, volume: f64) {
         self.0.get_mut().source.set_property("volume", volume);
+        self.set_muted(self.muted()); // for some reason gstreamer unmutes when changing volume?
     }
 
     /// Get the volume multiplier of the audio.
