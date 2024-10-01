@@ -44,7 +44,8 @@ pub(crate) struct Internal {
 
     pub(crate) bus: gst::Bus,
     pub(crate) source: gst::Pipeline,
-    pub(crate) app_sink: gst_app::AppSink,
+    pub(crate) alive: Arc<AtomicBool>,
+    pub(crate) worker: Option<std::thread::JoinHandle<()>>,
 
     pub(crate) width: i32,
     pub(crate) height: i32,
@@ -53,7 +54,7 @@ pub(crate) struct Internal {
     pub(crate) speed: f64,
 
     pub(crate) frame: Arc<Mutex<Vec<u8>>>,
-    pub(crate) upload_frame: AtomicBool,
+    pub(crate) upload_frame: Arc<AtomicBool>,
     pub(crate) paused: bool,
     pub(crate) muted: bool,
     pub(crate) looping: bool,
@@ -136,27 +137,6 @@ impl Internal {
             self.restart_stream = true;
         }
     }
-
-    pub(crate) fn read_frame(&self) -> Result<(), gst::FlowError> {
-        if self.source.state(None).1 != gst::State::Playing {
-            return Ok(());
-        }
-
-        let sample = self
-            .app_sink
-            .pull_sample()
-            .map_err(|_| gst::FlowError::Eos)?;
-
-        let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
-        let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
-
-        let mut frame = self.frame.lock().map_err(|_| gst::FlowError::Error)?;
-        let frame_len = frame.len();
-        frame.copy_from_slice(&map.as_slice()[..frame_len]);
-        self.upload_frame.swap(true, Ordering::SeqCst);
-
-        Ok(())
-    }
 }
 
 /// A multimedia video loaded from a URI (e.g., a local file path or HTTP stream).
@@ -164,11 +144,17 @@ pub struct Video(pub(crate) RefCell<Internal>);
 
 impl Drop for Video {
     fn drop(&mut self) {
-        self.0
-            .borrow()
+        let inner = self.0.get_mut();
+
+        inner
             .source
             .set_state(gst::State::Null)
             .expect("failed to set state");
+
+        inner.alive.store(false, Ordering::SeqCst);
+        if let Some(worker) = inner.worker.take() {
+            worker.join().expect("failed to stop video thread");
+        }
     }
 }
 
@@ -232,14 +218,45 @@ impl Video {
         );
 
         // NV12 = 12bpp
-        let frame = vec![0u8; (width as usize * height as usize * 3).div_ceil(2)];
+        let frame = Arc::new(Mutex::new(vec![
+            0u8;
+            (width as usize * height as usize * 3)
+                .div_ceil(2)
+        ]));
+        let upload_frame = Arc::new(AtomicBool::new(false));
+        let alive = Arc::new(AtomicBool::new(true));
+
+        let frame_ref = Arc::clone(&frame);
+        let upload_frame_ref = Arc::clone(&upload_frame);
+        let alive_ref = Arc::clone(&alive);
+
+        let worker = std::thread::spawn(move || {
+            while alive_ref.load(Ordering::SeqCst) {
+                if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
+                    let sample = app_sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+
+                    let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
+                    let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
+
+                    let mut frame = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
+                    let frame_len = frame.len();
+                    frame.copy_from_slice(&map.as_slice()[..frame_len]);
+                    upload_frame_ref.swap(true, Ordering::SeqCst);
+
+                    Ok(())
+                })() {
+                    log::error!("error pulling frame");
+                }
+            }
+        });
 
         Ok(Video(RefCell::new(Internal {
             id,
 
             bus: pipeline.bus().unwrap(),
             source: pipeline,
-            app_sink,
+            alive,
+            worker: Some(worker),
 
             width,
             height,
@@ -247,8 +264,8 @@ impl Video {
             duration,
             speed: 1.0,
 
-            frame: Arc::new(Mutex::new(frame)),
-            upload_frame: AtomicBool::new(false),
+            frame,
+            upload_frame,
             paused: false,
             muted: false,
             looping: false,
@@ -382,7 +399,10 @@ impl Video {
                 .iter()
                 .map(|&pos| {
                     inner.seek(pos, true)?;
-                    inner.read_frame().map_err(|_| Error::Sync)?;
+                    inner.upload_frame.store(false, Ordering::SeqCst);
+                    while !inner.upload_frame.load(Ordering::SeqCst) {
+                        std::hint::spin_loop();
+                    }
                     Ok(img::Handle::from_rgba(
                         inner.width as _,
                         inner.height as _,
@@ -399,8 +419,6 @@ impl Video {
         self.set_paused(paused);
         self.set_muted(muted);
         self.seek(pos, true)?;
-
-        self.0.borrow().read_frame().map_err(|_| Error::Sync)?;
 
         out
     }

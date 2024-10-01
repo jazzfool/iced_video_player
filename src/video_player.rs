@@ -143,7 +143,6 @@ where
         _viewport: &iced::Rectangle,
     ) {
         let inner = self.video.0.borrow_mut();
-        let _ = inner.read_frame();
 
         // bounds based on `Image::draw`
         let image_size = iced::Size::new(inner.width as f32, inner.height as f32);
