@@ -58,7 +58,6 @@ pub(crate) struct Internal {
     pub(crate) upload_frame: Arc<AtomicBool>,
     pub(crate) last_frame_time: Arc<Mutex<Instant>>,
     pub(crate) paused: bool,
-    pub(crate) muted: bool,
     pub(crate) looping: bool,
     pub(crate) is_eos: bool,
     pub(crate) restart_stream: bool,
@@ -287,7 +286,6 @@ impl Video {
             upload_frame,
             last_frame_time,
             paused: false,
-            muted: false,
             looping: false,
             is_eos: false,
             restart_stream: false,
@@ -319,14 +317,12 @@ impl Video {
 
     /// Set if the audio is muted or not, without changing the volume.
     pub fn set_muted(&mut self, muted: bool) {
-        let inner = self.0.get_mut();
-        inner.muted = muted;
-        inner.source.set_property("mute", muted);
+        self.0.get_mut().source.set_property("mute", muted);
     }
 
     /// Get if the audio is muted or not.
     pub fn muted(&self) -> bool {
-        self.0.borrow().muted
+        self.0.borrow().source.property("mute")
     }
 
     /// Get if the stream ended or not.
