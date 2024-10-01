@@ -1,8 +1,8 @@
 use iced::{
-    widget::{image::Handle, Button, Column, Container, Image, Row, Slider, Space, Text},
+    widget::{Button, Column, Container, Row, Slider, Text},
     Element,
 };
-use iced_video_player::{Position, Video, VideoPlayer};
+use iced_video_player::{Video, VideoPlayer};
 use std::time::Duration;
 
 fn main() -> iced::Result {
@@ -23,33 +23,25 @@ struct App {
     video: Video,
     position: f64,
     dragging: bool,
-    thumb: Handle,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let mut video = Video::new(
-            &url::Url::from_file_path(
-                std::path::PathBuf::from(file!())
-                    .parent()
-                    .unwrap()
-                    .join("../.media/test.mp4")
-                    .canonicalize()
-                    .unwrap(),
+        App {
+            video: Video::new(
+                &url::Url::from_file_path(
+                    std::path::PathBuf::from(file!())
+                        .parent()
+                        .unwrap()
+                        .join("../.media/test.mp4")
+                        .canonicalize()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .unwrap(),
-        )
-        .unwrap();
-        let thumb = video
-            .thumbnails(&[Position::Frame(0)])
-            .unwrap()
-            .pop()
-            .unwrap();
-        App {
-            video,
             position: 0.0,
             dragging: false,
-            thumb,
         }
     }
 }

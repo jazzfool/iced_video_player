@@ -2,7 +2,7 @@ use crate::{pipeline::VideoPrimitive, video::Video};
 use gstreamer as gst;
 use iced::{
     advanced::{self, graphics::core::event::Status, layout, widget, Widget},
-    Element, Size,
+    Element,
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
