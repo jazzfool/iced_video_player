@@ -6,8 +6,8 @@ use iced::{
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
+use std::sync::Arc;
 use std::{marker::PhantomData, sync::atomic::Ordering};
-use std::{sync::Arc, time::Duration};
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -191,7 +191,7 @@ where
     ) -> Status {
         let mut inner = self.video.0.borrow_mut();
 
-        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
             if inner.restart_stream || (!inner.is_eos && !inner.paused) {
                 let mut restart_stream = false;
                 if inner.restart_stream {
@@ -239,10 +239,8 @@ where
                         shell.publish(on_new_frame);
                     }
                 } else {
-                    let redraw_interval = 1.0 / inner.framerate;
-                    shell.request_redraw(iced::window::RedrawRequest::At(
-                        now + Duration::from_secs_f64(redraw_interval),
-                    ));
+                    shell
+                        .request_redraw(iced::window::RedrawRequest::At(std::time::Instant::now()));
                 }
             }
             Status::Captured
