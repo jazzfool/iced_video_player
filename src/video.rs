@@ -272,7 +272,12 @@ impl Video {
     ///
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
     pub fn set_volume(&mut self, volume: f64) {
-        self.0.borrow().source.set_property("volume", volume);
+        self.0.get_mut().source.set_property("volume", volume);
+    }
+
+    /// Get the volume multiplier of the audio.
+    pub fn volume(&self) -> f64 {
+        self.0.borrow().source.property("volume")
     }
 
     /// Set if the audio is muted or not, without changing the volume.
