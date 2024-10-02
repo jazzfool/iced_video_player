@@ -238,7 +238,6 @@ impl Video {
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));
 
-        let pipeline_ref = pipeline.clone();
         let frame_ref = Arc::clone(&frame);
         let upload_frame_ref = Arc::clone(&upload_frame);
         let alive_ref = Arc::clone(&alive);
@@ -246,11 +245,14 @@ impl Video {
 
         let worker = std::thread::spawn(move || {
             while alive_ref.load(Ordering::Acquire) {
-                if pipeline_ref.state(None).1 == gst::State::Paused {
-                    std::thread::sleep(std::time::Duration::from_secs_f64(1.0 / framerate));
-                }
+                let frame_interval = std::time::Duration::from_secs_f64(1.0 / framerate);
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
-                    let sample = app_sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                    let timeout =
+                        gst::ClockTime::from_nseconds(2 * frame_interval.as_nanos() as u64);
+                    let sample = app_sink
+                        .try_pull_sample(timeout)
+                        .or_else(|| app_sink.try_pull_preroll(timeout))
+                        .ok_or(gst::FlowError::Eos)?;
 
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
