@@ -215,7 +215,6 @@ impl Video {
         let height = s.get::<i32>("height").map_err(|_| Error::Caps)?;
         // resolution should be mod4
         let width = ((width + 4 - 1) / 4) * 4;
-        let height = ((height + 4 - 1) / 4) * 4;
         let framerate = s
             .get::<gst::Fraction>("framerate")
             .map_err(|_| Error::Caps)?;
