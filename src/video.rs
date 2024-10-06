@@ -237,6 +237,7 @@ impl Video {
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));
 
+        let pipeline_ref = pipeline.clone();
         let frame_ref = Arc::clone(&frame);
         let upload_frame_ref = Arc::clone(&upload_frame);
         let alive_ref = Arc::clone(&alive);
@@ -245,6 +246,13 @@ impl Video {
         let worker = std::thread::spawn(move || {
             while alive_ref.load(Ordering::Acquire) {
                 let frame_interval = std::time::Duration::from_secs_f64(1.0 / framerate);
+
+                let state = pipeline_ref.state(None).1;
+                if state != gst::State::Playing {
+                    // otherwise thread will busy loop pulling preroll
+                    std::thread::sleep(2 * frame_interval);
+                }
+
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
                     let timeout =
                         gst::ClockTime::from_nseconds(2 * frame_interval.as_nanos() as u64);
