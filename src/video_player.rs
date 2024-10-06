@@ -182,6 +182,7 @@ where
             drawing_bounds,
             VideoPrimitive::new(
                 inner.id,
+                Arc::clone(&inner.alive),
                 Arc::clone(&inner.frame),
                 (inner.width as _, inner.height as _),
                 upload_frame,

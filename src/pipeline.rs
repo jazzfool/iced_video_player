@@ -2,7 +2,10 @@ use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 #[repr(C)]
@@ -14,7 +17,16 @@ struct VideoPipeline {
     pipeline: wgpu::RenderPipeline,
     bg0_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    textures: BTreeMap<u64, (wgpu::Texture, wgpu::Texture, wgpu::Buffer, wgpu::BindGroup)>,
+    textures: BTreeMap<
+        u64,
+        (
+            wgpu::Texture,
+            wgpu::Texture,
+            wgpu::Buffer,
+            wgpu::BindGroup,
+            Arc<AtomicBool>,
+        ),
+    >,
 }
 
 impl VideoPipeline {
@@ -127,6 +139,7 @@ impl VideoPipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         video_id: u64,
+        alive: &Arc<AtomicBool>,
         (width, height): (u32, u32),
         frame: &[u8],
     ) {
@@ -217,11 +230,13 @@ impl VideoPipeline {
                 ],
             });
 
-            self.textures
-                .insert(video_id, (texture_y, texture_uv, buffer, bind_group));
+            self.textures.insert(
+                video_id,
+                (texture_y, texture_uv, buffer, bind_group, Arc::clone(alive)),
+            );
         }
 
-        let (texture_y, texture_uv, _, _) = self.textures.get(&video_id).unwrap();
+        let (texture_y, texture_uv, _, _, _) = self.textures.get(&video_id).unwrap();
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -264,8 +279,23 @@ impl VideoPipeline {
         );
     }
 
+    fn cleanup(&mut self) {
+        let ids: Vec<_> = self
+            .textures
+            .iter()
+            .filter_map(|(id, (_, _, _, _, alive))| (!alive.load(Ordering::SeqCst)).then_some(*id))
+            .collect();
+        for id in ids {
+            if let Some((texture_y, texture_uv, buffer, _, _)) = self.textures.remove(&id) {
+                texture_y.destroy();
+                texture_uv.destroy();
+                buffer.destroy();
+            }
+        }
+    }
+
     fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
-        if let Some((_, _, buffer, _)) = self.textures.get(&video_id) {
+        if let Some((_, _, buffer, _, _)) = self.textures.get(&video_id) {
             let uniforms = Uniforms {
                 rect: [
                     bounds.x,
@@ -281,6 +311,8 @@ impl VideoPipeline {
                 )
             });
         }
+
+        self.cleanup();
     }
 
     fn draw(
@@ -290,7 +322,7 @@ impl VideoPipeline {
         viewport: &iced::Rectangle<u32>,
         video_id: u64,
     ) {
-        if let Some((_, _, _, bind_group)) = self.textures.get(&video_id) {
+        if let Some((_, _, _, bind_group, _)) = self.textures.get(&video_id) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("iced_video_player render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -324,6 +356,7 @@ impl VideoPipeline {
 #[derive(Debug, Clone)]
 pub(crate) struct VideoPrimitive {
     video_id: u64,
+    alive: Arc<AtomicBool>,
     frame: Arc<Mutex<Vec<u8>>>,
     size: (u32, u32),
     upload_frame: bool,
@@ -332,12 +365,14 @@ pub(crate) struct VideoPrimitive {
 impl VideoPrimitive {
     pub fn new(
         video_id: u64,
+        alive: Arc<AtomicBool>,
         frame: Arc<Mutex<Vec<u8>>>,
         size: (u32, u32),
         upload_frame: bool,
     ) -> Self {
         VideoPrimitive {
             video_id,
+            alive,
             frame,
             size,
             upload_frame,
@@ -366,6 +401,7 @@ impl Primitive for VideoPrimitive {
                 device,
                 queue,
                 self.video_id,
+                &self.alive,
                 self.size,
                 self.frame.lock().expect("lock frame mutex").as_slice(),
             );
