@@ -204,7 +204,7 @@ where
         let mut inner = self.video.0.borrow_mut();
 
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
-            if inner.restart_stream || (!inner.is_eos && !inner.paused) {
+            if inner.restart_stream || (!inner.is_eos && !inner.paused.load(Ordering::SeqCst)) {
                 let mut restart_stream = false;
                 if inner.restart_stream {
                     restart_stream = true;

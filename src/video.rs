@@ -58,7 +58,7 @@ pub(crate) struct Internal {
     pub(crate) frame: Arc<Mutex<Vec<u8>>>,
     pub(crate) upload_frame: Arc<AtomicBool>,
     pub(crate) last_frame_time: Arc<Mutex<Instant>>,
-    pub(crate) paused: bool,
+    pub(crate) paused: Arc<AtomicBool>,
     pub(crate) looping: bool,
     pub(crate) is_eos: bool,
     pub(crate) restart_stream: bool,
@@ -132,7 +132,7 @@ impl Internal {
                 gst::State::Playing
             })
             .unwrap(/* state was changed in ctor; state errors caught there */);
-        self.paused = paused;
+        self.paused.store(paused, Ordering::SeqCst);
 
         // Set restart_stream flag to make the stream restart on the next Message::NextFrame
         if self.is_eos && !paused {
@@ -174,7 +174,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -249,30 +249,26 @@ impl Video {
         let upload_frame = Arc::new(AtomicBool::new(false));
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));
+        let paused = Arc::new(AtomicBool::new(false));
 
-        let pipeline_ref = pipeline.clone();
         let frame_ref = Arc::clone(&frame);
         let upload_frame_ref = Arc::clone(&upload_frame);
         let alive_ref = Arc::clone(&alive);
         let last_frame_time_ref = Arc::clone(&last_frame_time);
+        let paused_ref = Arc::clone(&paused);
 
         let worker = std::thread::spawn(move || {
             while alive_ref.load(Ordering::Acquire) {
-                let frame_interval = std::time::Duration::from_secs_f64(1.0 / framerate);
-
-                let state = pipeline_ref.state(None).1;
-                if state != gst::State::Playing {
-                    // otherwise thread will busy loop pulling preroll
-                    std::thread::sleep(2 * frame_interval);
-                }
-
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
-                    let timeout =
-                        gst::ClockTime::from_nseconds(2 * frame_interval.as_nanos() as u64);
-                    let sample = app_sink
-                        .try_pull_sample(timeout)
-                        .or_else(|| app_sink.try_pull_preroll(timeout))
-                        .ok_or(gst::FlowError::Eos)?;
+                    let sample = if paused_ref.load(Ordering::SeqCst) {
+                        app_sink
+                            .try_pull_preroll(gst::ClockTime::from_mseconds(16))
+                            .ok_or(gst::FlowError::Eos)?
+                    } else {
+                        app_sink
+                            .try_pull_sample(gst::ClockTime::from_mseconds(16))
+                            .ok_or(gst::FlowError::Eos)?
+                    };
 
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
@@ -311,7 +307,7 @@ impl Video {
             frame,
             upload_frame,
             last_frame_time,
-            paused: false,
+            paused,
             looping: false,
             is_eos: false,
             restart_stream: false,
@@ -375,7 +371,7 @@ impl Video {
 
     /// Get if the media is paused or not.
     pub fn paused(&self) -> bool {
-        self.0.borrow().paused
+        self.0.borrow().paused.load(Ordering::SeqCst)
     }
 
     /// Jumps to a specific position in the media.
