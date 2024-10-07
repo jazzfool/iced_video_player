@@ -71,4 +71,6 @@ pub enum Error {
     Sync,
     #[error("failed to lock internal sync primitive")]
     Lock,
+    #[error("invalid framerate: {0}")]
+    Framerate(f64),
 }

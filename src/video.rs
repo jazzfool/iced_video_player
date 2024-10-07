@@ -53,6 +53,7 @@ pub(crate) struct Internal {
     pub(crate) framerate: f64,
     pub(crate) duration: std::time::Duration,
     pub(crate) speed: f64,
+    pub(crate) sync_av: bool,
 
     pub(crate) frame: Arc<Mutex<Vec<u8>>>,
     pub(crate) upload_frame: Arc<AtomicBool>,
@@ -141,8 +142,10 @@ impl Internal {
 
     /// Syncs audio with video when there is (inevitably) latency presenting the frame.
     pub(crate) fn set_av_offset(&mut self, offset: Duration) {
-        self.source
-            .set_property("av-offset", -(offset.as_nanos() as i64));
+        if self.sync_av {
+            self.source
+                .set_property("av-offset", -(offset.as_nanos() as i64));
+        }
     }
 }
 
@@ -220,12 +223,22 @@ impl Video {
             .map_err(|_| Error::Caps)?;
         let framerate = framerate.numer() as f64 / framerate.denom() as f64;
 
+        if framerate.is_nan()
+            || framerate.is_infinite()
+            || framerate < 0.0
+            || framerate.abs() < f64::EPSILON
+        {
+            return Err(Error::Framerate(framerate));
+        }
+
         let duration = std::time::Duration::from_nanos(
             pipeline
                 .query_duration::<gst::ClockTime>()
                 .map(|duration| duration.nseconds())
                 .unwrap_or(0),
         );
+
+        let sync_av = pipeline.has_property("av-offset", None);
 
         // NV12 = 12bpp
         let frame = Arc::new(Mutex::new(vec![
@@ -293,6 +306,7 @@ impl Video {
             framerate,
             duration,
             speed: 1.0,
+            sync_av,
 
             frame,
             upload_frame,
