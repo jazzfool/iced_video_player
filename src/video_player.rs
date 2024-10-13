@@ -213,7 +213,10 @@ where
                 }
                 let mut eos_pause = false;
 
-                for msg in inner.bus.iter() {
+                while let Some(msg) = inner
+                    .bus
+                    .pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])
+                {
                     match msg.view() {
                         gst::MessageView::Error(err) => {
                             error!("bus returned an error: {err}");
