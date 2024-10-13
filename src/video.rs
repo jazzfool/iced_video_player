@@ -195,6 +195,9 @@ impl Video {
 
     /// Creates a new video based on an existing GStreamer pipeline and appsink.
     /// Expects an `appsink` plugin with `caps=video/x-raw,format=NV12`.
+    ///
+    /// **Note:** Many functions of [`Video`] assume a `playbin` pipeline.
+    /// Non-`playbin` pipelines given here may not have full functionality.
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
         app_sink: gst_app::AppSink,
@@ -410,7 +413,54 @@ impl Video {
 
     /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
     pub fn restart_stream(&mut self) -> Result<(), Error> {
-        self.0.borrow_mut().restart_stream()
+        self.0.get_mut().restart_stream()
+    }
+
+    /// Set the subtitle URL to display.
+    pub fn set_subtitle_url(&mut self, url: &url::Url) -> Result<(), Error> {
+        let paused = self.paused();
+        let inner = self.0.get_mut();
+        inner.source.set_state(gst::State::Ready)?;
+        inner.source.set_property("suburi", url.as_str());
+        inner.set_paused(paused);
+        Ok(())
+    }
+
+    /// Get the current subtitle URL.
+    pub fn subtitle_url(&self) -> Option<url::Url> {
+        url::Url::parse(&self.0.borrow().source.property::<String>("suburi")).ok()
+    }
+
+    /// Set the font used to display subtitles.
+    pub fn set_subtitle_font(&mut self, family: &str, size_pt: u8) {
+        self.0
+            .get_mut()
+            .source
+            .set_property("subtitle-font-desc", format!("{}, {}", family, size_pt));
+    }
+
+    /// Set whether the subtitle stream is enabled.
+    pub fn set_subtitles_enabled(&mut self, enabled: bool) {
+        let source = &self.0.get_mut().source;
+        let flags = source.property_value("flags");
+        let flags_class = glib::FlagsClass::with_type(flags.type_()).unwrap();
+        let flags = flags_class.builder_with_value(flags).unwrap();
+        let flags = if enabled {
+            flags.set_by_nick("text")
+        } else {
+            flags.unset_by_nick("text")
+        }
+        .build()
+        .unwrap();
+        source.set_property_from_value("flags", &flags);
+    }
+
+    /// Get whether the subtitle stream is enabled.
+    pub fn subtitles_enabled(&self) -> bool {
+        let source = &self.0.borrow().source;
+        let flags = source.property_value("flags");
+        let flags_class = glib::FlagsClass::with_type(flags.type_()).unwrap();
+        flags_class.is_set_by_nick(&flags, "text")
     }
 
     /// Get the underlying GStreamer pipeline.
