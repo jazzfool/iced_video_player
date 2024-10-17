@@ -27,6 +27,9 @@ log = "0.4"
 thiserror = "1"
 url = "2" # media uri
 
+[[example]]
+name = "minimal"
+
 [package.metadata.nix]
 systems = ["x86_64-linux"]
 app = true
