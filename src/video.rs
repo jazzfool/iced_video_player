@@ -62,6 +62,8 @@ pub(crate) struct Internal {
     pub(crate) looping: bool,
     pub(crate) is_eos: bool,
     pub(crate) restart_stream: bool,
+    pub(crate) sync_av_avg: u64,
+    pub(crate) sync_av_counter: u64,
 }
 
 impl Internal {
@@ -143,8 +145,13 @@ impl Internal {
     /// Syncs audio with video when there is (inevitably) latency presenting the frame.
     pub(crate) fn set_av_offset(&mut self, offset: Duration) {
         if self.sync_av {
-            self.source
-                .set_property("av-offset", -(offset.as_nanos() as i64));
+            self.sync_av_counter += 1;
+            self.sync_av_avg = self.sync_av_avg * (self.sync_av_counter - 1) / self.sync_av_counter
+                + offset.as_nanos() as u64 / self.sync_av_counter;
+            if self.sync_av_counter % 128 == 0 {
+                self.source
+                    .set_property("av-offset", -(self.sync_av_avg as i64));
+            }
         }
     }
 }
@@ -273,6 +280,10 @@ impl Video {
                             .ok_or(gst::FlowError::Eos)?
                     };
 
+                    *last_frame_time_ref
+                        .lock()
+                        .map_err(|_| gst::FlowError::Error)? = Instant::now();
+
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
 
@@ -280,9 +291,6 @@ impl Video {
                     let frame_len = frame.len();
                     frame.copy_from_slice(&map.as_slice()[..frame_len]);
 
-                    *last_frame_time_ref
-                        .lock()
-                        .map_err(|_| gst::FlowError::Error)? = Instant::now();
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
                     Ok(())
@@ -314,6 +322,8 @@ impl Video {
             looping: false,
             is_eos: false,
             restart_stream: false,
+            sync_av_avg: 0,
+            sync_av_counter: 0,
         })))
     }
 
