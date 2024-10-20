@@ -4,6 +4,7 @@ use gstreamer_app as gst_app;
 use gstreamer_app::prelude::*;
 use iced::widget::image as img;
 use std::cell::RefCell;
+use std::num::NonZeroU8;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -478,14 +479,20 @@ impl Video {
         self.0.borrow().source.clone()
     }
 
-    /// Generates a list of thumbnails based on a set of positions in the media.
+    /// Generates a list of thumbnails based on a set of positions in the media, downscaled by a given factor.
     ///
     /// Slow; only needs to be called once for each instance.
     /// It's best to call this at the very start of playback, otherwise the position may shift.
-    pub fn thumbnails<I>(&mut self, positions: I) -> Result<Vec<img::Handle>, Error>
+    pub fn thumbnails<I>(
+        &mut self,
+        positions: I,
+        downscale: NonZeroU8,
+    ) -> Result<Vec<img::Handle>, Error>
     where
         I: IntoIterator<Item = Position>,
     {
+        let downscale = u8::from(downscale) as u32;
+
         let paused = self.paused();
         let muted = self.muted();
         let pos = self.position();
@@ -506,12 +513,13 @@ impl Video {
                         std::hint::spin_loop();
                     }
                     Ok(img::Handle::from_rgba(
-                        inner.width as _,
-                        inner.height as _,
+                        inner.width as u32 / downscale,
+                        inner.height as u32 / downscale,
                         yuv_to_rgba(
                             &inner.frame.lock().map_err(|_| Error::Lock)?,
                             width as _,
                             height as _,
+                            downscale,
                         ),
                     ))
                 })
@@ -526,15 +534,18 @@ impl Video {
     }
 }
 
-fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32) -> Vec<u8> {
+fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
     let uv_start = width * height;
     let mut rgba = vec![];
 
-    for y in 0..height {
-        for x in 0..width {
-            let uv_i = uv_start + width * (y / 2) + x / 2 * 2;
+    for y in 0..height / downscale {
+        for x in 0..width / downscale {
+            let x_src = x * downscale;
+            let y_src = y * downscale;
 
-            let y = yuv[(y * width + x) as usize] as f32;
+            let uv_i = uv_start + width * (y_src / 2) + x_src / 2 * 2;
+
+            let y = yuv[(y_src * width + x_src) as usize] as f32;
             let u = yuv[uv_i as usize] as f32;
             let v = yuv[(uv_i + 1) as usize] as f32;
 
