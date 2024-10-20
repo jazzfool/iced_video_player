@@ -482,7 +482,10 @@ impl Video {
     ///
     /// Slow; only needs to be called once for each instance.
     /// It's best to call this at the very start of playback, otherwise the position may shift.
-    pub fn thumbnails(&mut self, positions: &[Position]) -> Result<Vec<img::Handle>, Error> {
+    pub fn thumbnails<I>(&mut self, positions: I) -> Result<Vec<img::Handle>, Error>
+    where
+        I: IntoIterator<Item = Position>,
+    {
         let paused = self.paused();
         let muted = self.muted();
         let pos = self.position();
@@ -495,8 +498,8 @@ impl Video {
             let width = inner.width;
             let height = inner.height;
             positions
-                .iter()
-                .map(|&pos| {
+                .into_iter()
+                .map(|pos| {
                     inner.seek(pos, true)?;
                     inner.upload_frame.store(false, Ordering::SeqCst);
                     while !inner.upload_frame.load(Ordering::SeqCst) {
