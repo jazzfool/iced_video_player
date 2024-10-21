@@ -4,7 +4,7 @@ use iced::{
     advanced::{self, graphics::core::event::Status, layout, widget, Widget},
     Element,
 };
-use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
+use iced::widget::shader::Renderer as PrimitiveRenderer;
 use log::error;
 use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Instant};

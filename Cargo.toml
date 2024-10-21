@@ -16,9 +16,7 @@ exclude = [
 ]
 
 [dependencies]
-iced = { version = "0.13", features = ["image", "advanced", "wgpu"] }
-iced_native = "0.10"
-iced_wgpu = "0.13"
+iced = { version = "0.14.0-dev", git = "https://github.com/SoulSharer/iced.git", branch = "expose-prim-render", features = ["image", "advanced", "wgpu"] }
 gstreamer = "0.23"
 gstreamer-app = "0.23" # appsink
 gstreamer-base = "0.23" # basesrc

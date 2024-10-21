@@ -1,5 +1,4 @@
-use iced_wgpu::primitive::Primitive;
-use iced_wgpu::wgpu;
+use iced::{wgpu::{self, PipelineCompilationOptions}, widget::shader::{Primitive, Storage, Viewport}};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -91,6 +90,7 @@ impl VideoPipeline {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: PipelineCompilationOptions::default(),
             },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -107,8 +107,10 @@ impl VideoPipeline {
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: PipelineCompilationOptions::default(),
             }),
             multiview: None,
+            cache: None
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -386,9 +388,9 @@ impl Primitive for VideoPrimitive {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
-        storage: &mut iced_wgpu::primitive::Storage,
+        storage: &mut Storage,
         bounds: &iced::Rectangle,
-        _viewport: &iced_wgpu::graphics::Viewport,
+        _viewport: &Viewport,
     ) {
         if !storage.has::<VideoPipeline>() {
             storage.store(VideoPipeline::new(device, format));
@@ -413,7 +415,7 @@ impl Primitive for VideoPrimitive {
     fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        storage: &iced_wgpu::primitive::Storage,
+        storage: &Storage,
         target: &wgpu::TextureView,
         clip_bounds: &iced::Rectangle<u32>,
     ) {
