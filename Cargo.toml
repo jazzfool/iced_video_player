@@ -17,7 +17,6 @@ exclude = [
 
 [dependencies]
 iced = { version = "0.13", features = ["image", "advanced", "wgpu"] }
-iced_native = "0.10"
 iced_wgpu = "0.13"
 gstreamer = "0.23"
 gstreamer-app = "0.23" # appsink
