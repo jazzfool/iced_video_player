@@ -20,7 +20,7 @@ where
     height: iced::Length,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
-    on_subtitle_text: Option<Box<dyn Fn(String) -> Message + 'a>>,
+    on_subtitle_text: Option<Box<dyn Fn(Option<String>) -> Message + 'a>>,
     on_error: Option<Box<dyn Fn(&glib::Error) -> Message + 'a>>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
@@ -87,7 +87,7 @@ where
     /// Message to send when the video receives a new frame.
     pub fn on_subtitle_text<F>(self, on_subtitle_text: F) -> Self
     where
-        F: 'a + Fn(String) -> Message,
+        F: 'a + Fn(Option<String>) -> Message,
     {
         VideoPlayer {
             on_subtitle_text: Some(Box::new(on_subtitle_text)),
@@ -273,13 +273,10 @@ where
                 }
 
                 if let Some(on_subtitle_text) = &self.on_subtitle_text {
-                    if let Some(text) = inner
-                        .subtitle_text
-                        .try_lock()
-                        .ok()
-                        .and_then(|mut text| text.take())
-                    {
-                        shell.publish(on_subtitle_text(text));
+                    if inner.upload_text.swap(false, Ordering::SeqCst) {
+                        if let Some(text) = inner.subtitle_text.try_lock().ok() {
+                            shell.publish(on_subtitle_text(text.clone()));
+                        }
                     }
                 }
             }

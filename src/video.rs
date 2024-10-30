@@ -67,6 +67,7 @@ pub(crate) struct Internal {
     pub(crate) sync_av_counter: u64,
 
     pub(crate) subtitle_text: Arc<Mutex<Option<String>>>,
+    pub(crate) upload_text: Arc<AtomicBool>,
 }
 
 impl Internal {
@@ -279,9 +280,13 @@ impl Video {
         let paused_ref = Arc::clone(&paused);
 
         let subtitle_text = Arc::new(Mutex::new(None));
+        let upload_text = Arc::new(AtomicBool::new(false));
         let subtitle_text_ref = Arc::clone(&subtitle_text);
+        let upload_text_ref = Arc::clone(&upload_text);
 
         let worker = std::thread::spawn(move || {
+            let mut clear_subtitles_at = None;
+
             while alive_ref.load(Ordering::Acquire) {
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
                     let sample = if paused_ref.load(Ordering::SeqCst) {
@@ -307,12 +312,24 @@ impl Video {
 
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
+                    if let Some(at) = clear_subtitles_at.clone() {
+                        if Instant::now() >= at {
+                            *subtitle_text_ref
+                                .lock()
+                                .map_err(|_| gst::FlowError::Error)? = None;
+                            upload_text_ref.store(true, Ordering::SeqCst);
+                            clear_subtitles_at = None;
+                        }
+                    }
+
                     let text = text_sink
                         .as_ref()
                         .and_then(|sink| sink.try_pull_sample(gst::ClockTime::from_seconds(0)));
                     if let Some(text) = text {
                         let text = text.buffer().ok_or(gst::FlowError::Error)?;
+                        let duration = text.duration();
                         let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
+
                         let text = html_escape::decode_html_entities(
                             std::str::from_utf8(map.as_slice())
                                 .map_err(|_| gst::FlowError::Error)?,
@@ -321,6 +338,11 @@ impl Video {
                         *subtitle_text_ref
                             .lock()
                             .map_err(|_| gst::FlowError::Error)? = Some(text);
+                        upload_text_ref.store(true, Ordering::SeqCst);
+
+                        clear_subtitles_at = duration.map(|duration| {
+                            Instant::now() + Duration::from_nanos(duration.nseconds())
+                        });
                     }
 
                     Ok(())
@@ -356,6 +378,7 @@ impl Video {
             sync_av_counter: 0,
 
             subtitle_text,
+            upload_text,
         })))
     }
 
