@@ -65,6 +65,8 @@ pub(crate) struct Internal {
     pub(crate) restart_stream: bool,
     pub(crate) sync_av_avg: u64,
     pub(crate) sync_av_counter: u64,
+
+    pub(crate) subtitle_text: Arc<Mutex<Option<String>>>,
 }
 
 impl Internal {
@@ -182,7 +184,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" text-sink=\"appsink name=iced_text caps=text/x-raw\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -195,26 +197,34 @@ impl Video {
             .unwrap()
             .downcast::<gst::Bin>()
             .unwrap();
-        let app_sink = bin.by_name("iced_video").unwrap();
-        let app_sink = app_sink.downcast::<gst_app::AppSink>().unwrap();
+        let video_sink = bin.by_name("iced_video").unwrap();
+        let video_sink = video_sink.downcast::<gst_app::AppSink>().unwrap();
 
-        Self::from_gst_pipeline(pipeline, app_sink)
+        let text_sink: gst::Element = pipeline.property("text-sink");
+        //let pad = text_sink.pads().get(0).cloned().unwrap();
+        let text_sink = text_sink.downcast::<gst_app::AppSink>().unwrap();
+
+        Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
     }
 
     /// Creates a new video based on an existing GStreamer pipeline and appsink.
     /// Expects an `appsink` plugin with `caps=video/x-raw,format=NV12`.
     ///
+    /// An optional `text_sink` can be provided, which enables subtitle messages
+    /// to be emitted.
+    ///
     /// **Note:** Many functions of [`Video`] assume a `playbin` pipeline.
     /// Non-`playbin` pipelines given here may not have full functionality.
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
-        app_sink: gst_app::AppSink,
+        video_sink: gst_app::AppSink,
+        text_sink: Option<gst_app::AppSink>,
     ) -> Result<Self, Error> {
         gst::init()?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
 
-        let pad = app_sink.pads().first().cloned().unwrap();
+        let pad = video_sink.pads().first().cloned().unwrap();
 
         pipeline.set_state(gst::State::Playing)?;
 
@@ -268,15 +278,18 @@ impl Video {
         let last_frame_time_ref = Arc::clone(&last_frame_time);
         let paused_ref = Arc::clone(&paused);
 
+        let subtitle_text = Arc::new(Mutex::new(None));
+        let subtitle_text_ref = Arc::clone(&subtitle_text);
+
         let worker = std::thread::spawn(move || {
             while alive_ref.load(Ordering::Acquire) {
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
                     let sample = if paused_ref.load(Ordering::SeqCst) {
-                        app_sink
+                        video_sink
                             .try_pull_preroll(gst::ClockTime::from_mseconds(16))
                             .ok_or(gst::FlowError::Eos)?
                     } else {
-                        app_sink
+                        video_sink
                             .try_pull_sample(gst::ClockTime::from_mseconds(16))
                             .ok_or(gst::FlowError::Eos)?
                     };
@@ -293,6 +306,22 @@ impl Video {
                     frame.copy_from_slice(&map.as_slice()[..frame_len]);
 
                     upload_frame_ref.swap(true, Ordering::SeqCst);
+
+                    let text = text_sink
+                        .as_ref()
+                        .and_then(|sink| sink.try_pull_sample(gst::ClockTime::from_seconds(0)));
+                    if let Some(text) = text {
+                        let text = text.buffer().ok_or(gst::FlowError::Error)?;
+                        let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
+                        let text = html_escape::decode_html_entities(
+                            std::str::from_utf8(map.as_slice())
+                                .map_err(|_| gst::FlowError::Error)?,
+                        )
+                        .to_string();
+                        *subtitle_text_ref
+                            .lock()
+                            .map_err(|_| gst::FlowError::Error)? = Some(text);
+                    }
 
                     Ok(())
                 })() {
@@ -325,6 +354,8 @@ impl Video {
             restart_stream: false,
             sync_av_avg: 0,
             sync_av_counter: 0,
+
+            subtitle_text,
         })))
     }
 
@@ -440,38 +471,6 @@ impl Video {
     /// Get the current subtitle URL.
     pub fn subtitle_url(&self) -> Option<url::Url> {
         url::Url::parse(&self.0.borrow().source.property::<String>("suburi")).ok()
-    }
-
-    /// Set the font used to display subtitles.
-    pub fn set_subtitle_font(&mut self, family: &str, size_pt: u8) {
-        self.0
-            .get_mut()
-            .source
-            .set_property("subtitle-font-desc", format!("{}, {}", family, size_pt));
-    }
-
-    /// Set whether the subtitle stream is enabled.
-    pub fn set_subtitles_enabled(&mut self, enabled: bool) {
-        let source = &self.0.get_mut().source;
-        let flags = source.property_value("flags");
-        let flags_class = glib::FlagsClass::with_type(flags.type_()).unwrap();
-        let flags = flags_class.builder_with_value(flags).unwrap();
-        let flags = if enabled {
-            flags.set_by_nick("text")
-        } else {
-            flags.unset_by_nick("text")
-        }
-        .build()
-        .unwrap();
-        source.set_property_from_value("flags", &flags);
-    }
-
-    /// Get whether the subtitle stream is enabled.
-    pub fn subtitles_enabled(&self) -> bool {
-        let source = &self.0.borrow().source;
-        let flags = source.property_value("flags");
-        let flags_class = glib::FlagsClass::with_type(flags.type_()).unwrap();
-        flags_class.is_set_by_nick(&flags, "text")
     }
 
     /// Get the underlying GStreamer pipeline.

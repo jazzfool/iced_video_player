@@ -20,6 +20,7 @@ where
     height: iced::Length,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
+    on_subtitle_text: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_error: Option<Box<dyn Fn(&glib::Error) -> Message + 'a>>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
@@ -37,6 +38,7 @@ where
             height: iced::Length::Shrink,
             on_end_of_stream: None,
             on_new_frame: None,
+            on_subtitle_text: None,
             on_error: None,
             _phantom: Default::default(),
         }
@@ -82,6 +84,18 @@ where
         }
     }
 
+    /// Message to send when the video receives a new frame.
+    pub fn on_subtitle_text<F>(self, on_subtitle_text: F) -> Self
+    where
+        F: 'a + Fn(String) -> Message,
+    {
+        VideoPlayer {
+            on_subtitle_text: Some(Box::new(on_subtitle_text)),
+            ..self
+        }
+    }
+
+    /// Message to send when the video playback encounters an error.
     pub fn on_error<F>(self, on_error: F) -> Self
     where
         F: 'a + Fn(&glib::Error) -> Message,
@@ -256,6 +270,17 @@ where
                 } else {
                     shell
                         .request_redraw(iced::window::RedrawRequest::At(std::time::Instant::now()));
+                }
+
+                if let Some(on_subtitle_text) = &self.on_subtitle_text {
+                    if let Some(text) = inner
+                        .subtitle_text
+                        .try_lock()
+                        .ok()
+                        .and_then(|mut text| text.take())
+                    {
+                        shell.publish(on_subtitle_text(text));
+                    }
                 }
             }
             Status::Captured
