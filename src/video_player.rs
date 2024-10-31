@@ -6,7 +6,7 @@ use iced::{
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
-use std::{marker::PhantomData, sync::atomic::Ordering};
+use std::{marker::PhantomData, sync::atomic::Ordering, time::Duration};
 use std::{sync::Arc, time::Instant};
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
@@ -218,7 +218,7 @@ where
         let mut inner = self.video.0.borrow_mut();
 
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
-            if inner.restart_stream || (!inner.is_eos && !inner.paused.load(Ordering::SeqCst)) {
+            if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
                 let mut restart_stream = false;
                 if inner.restart_stream {
                     restart_stream = true;
@@ -255,7 +255,7 @@ where
                 // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
                 if restart_stream {
                     if let Err(err) = inner.restart_stream() {
-                        error!("cannot restart stream (can't seek): {err:#?}")
+                        error!("cannot restart stream (can't seek): {err:#?}");
                     }
                 } else if eos_pause {
                     inner.is_eos = true;
@@ -263,13 +263,9 @@ where
                 }
 
                 if inner.upload_frame.load(Ordering::SeqCst) {
-                    shell.request_redraw(iced::window::RedrawRequest::NextFrame);
                     if let Some(on_new_frame) = self.on_new_frame.clone() {
                         shell.publish(on_new_frame);
                     }
-                } else {
-                    shell
-                        .request_redraw(iced::window::RedrawRequest::At(std::time::Instant::now()));
                 }
 
                 if let Some(on_subtitle_text) = &self.on_subtitle_text {
@@ -279,6 +275,12 @@ where
                         }
                     }
                 }
+
+                shell.request_redraw(iced::window::RedrawRequest::NextFrame);
+            } else {
+                shell.request_redraw(iced::window::RedrawRequest::At(
+                    Instant::now() + Duration::from_millis(32),
+                ));
             }
             Status::Captured
         } else {

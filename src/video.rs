@@ -15,7 +15,7 @@ pub enum Position {
     /// Position based on time.
     ///
     /// Not the most accurate format for videos.
-    Time(std::time::Duration),
+    Time(Duration),
     /// Position based on nth frame.
     Frame(u64),
 }
@@ -29,8 +29,8 @@ impl From<Position> for gst::GenericFormattedValue {
     }
 }
 
-impl From<std::time::Duration> for Position {
-    fn from(t: std::time::Duration) -> Self {
+impl From<Duration> for Position {
+    fn from(t: Duration) -> Self {
         Position::Time(t)
     }
 }
@@ -52,14 +52,13 @@ pub(crate) struct Internal {
     pub(crate) width: i32,
     pub(crate) height: i32,
     pub(crate) framerate: f64,
-    pub(crate) duration: std::time::Duration,
+    pub(crate) duration: Duration,
     pub(crate) speed: f64,
     pub(crate) sync_av: bool,
 
     pub(crate) frame: Arc<Mutex<Vec<u8>>>,
     pub(crate) upload_frame: Arc<AtomicBool>,
     pub(crate) last_frame_time: Arc<Mutex<Instant>>,
-    pub(crate) paused: Arc<AtomicBool>,
     pub(crate) looping: bool,
     pub(crate) is_eos: bool,
     pub(crate) restart_stream: bool,
@@ -73,26 +72,37 @@ pub(crate) struct Internal {
 impl Internal {
     pub(crate) fn seek(&self, position: impl Into<Position>, accurate: bool) -> Result<(), Error> {
         let position = position.into();
+
         // gstreamer complains if the start & end value types aren't the same
-        let end = match &position {
-            Position::Time(_) => Position::Time(std::time::Duration::ZERO),
-            Position::Frame(_) => Position::Frame(0),
+        match &position {
+            Position::Time(_) => self.source.seek(
+                self.speed,
+                gst::SeekFlags::FLUSH
+                    | if accurate {
+                        gst::SeekFlags::ACCURATE
+                    } else {
+                        gst::SeekFlags::empty()
+                    },
+                gst::SeekType::Set,
+                gst::GenericFormattedValue::from(position),
+                gst::SeekType::Set,
+                gst::ClockTime::NONE,
+            )?,
+            Position::Frame(_) => self.source.seek(
+                self.speed,
+                gst::SeekFlags::FLUSH
+                    | if accurate {
+                        gst::SeekFlags::ACCURATE
+                    } else {
+                        gst::SeekFlags::empty()
+                    },
+                gst::SeekType::Set,
+                gst::GenericFormattedValue::from(position),
+                gst::SeekType::Set,
+                gst::format::Default::NONE,
+            )?,
         };
 
-        self.source.seek(
-            self.speed,
-            gst::SeekFlags::FLUSH
-                | gst::SeekFlags::KEY_UNIT
-                | if accurate {
-                    gst::SeekFlags::ACCURATE
-                } else {
-                    gst::SeekFlags::empty()
-                },
-            gst::SeekType::Set,
-            gst::GenericFormattedValue::from(position),
-            gst::SeekType::End,
-            gst::GenericFormattedValue::from(end),
-        )?;
         Ok(())
     }
 
@@ -138,12 +148,15 @@ impl Internal {
                 gst::State::Playing
             })
             .unwrap(/* state was changed in ctor; state errors caught there */);
-        self.paused.store(paused, Ordering::SeqCst);
 
         // Set restart_stream flag to make the stream restart on the next Message::NextFrame
         if self.is_eos && !paused {
             self.restart_stream = true;
         }
+    }
+
+    pub(crate) fn paused(&self) -> bool {
+        self.source.state(gst::ClockTime::ZERO).1 == gst::State::Paused
     }
 
     /// Syncs audio with video when there is (inevitably) latency presenting the frame.
@@ -185,7 +198,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" text-sink=\"appsink name=iced_text caps=text/x-raw\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" text-sink=\"appsink name=iced_text sync=true caps=text/x-raw\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -253,7 +266,7 @@ impl Video {
             return Err(Error::Framerate(framerate));
         }
 
-        let duration = std::time::Duration::from_nanos(
+        let duration = Duration::from_nanos(
             pipeline
                 .query_duration::<gst::ClockTime>()
                 .map(|duration| duration.nseconds())
@@ -271,33 +284,34 @@ impl Video {
         let upload_frame = Arc::new(AtomicBool::new(false));
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));
-        let paused = Arc::new(AtomicBool::new(false));
 
         let frame_ref = Arc::clone(&frame);
         let upload_frame_ref = Arc::clone(&upload_frame);
         let alive_ref = Arc::clone(&alive);
         let last_frame_time_ref = Arc::clone(&last_frame_time);
-        let paused_ref = Arc::clone(&paused);
 
         let subtitle_text = Arc::new(Mutex::new(None));
         let upload_text = Arc::new(AtomicBool::new(false));
         let subtitle_text_ref = Arc::clone(&subtitle_text);
         let upload_text_ref = Arc::clone(&upload_text);
 
+        let pipeline_ref = pipeline.clone();
+
         let worker = std::thread::spawn(move || {
             let mut clear_subtitles_at = None;
 
             while alive_ref.load(Ordering::Acquire) {
                 if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
-                    let sample = if paused_ref.load(Ordering::SeqCst) {
-                        video_sink
-                            .try_pull_preroll(gst::ClockTime::from_mseconds(16))
-                            .ok_or(gst::FlowError::Eos)?
-                    } else {
-                        video_sink
-                            .try_pull_sample(gst::ClockTime::from_mseconds(16))
-                            .ok_or(gst::FlowError::Eos)?
-                    };
+                    let sample =
+                        if pipeline_ref.state(gst::ClockTime::ZERO).1 != gst::State::Playing {
+                            video_sink
+                                .try_pull_preroll(gst::ClockTime::from_mseconds(16))
+                                .ok_or(gst::FlowError::Eos)?
+                        } else {
+                            video_sink
+                                .try_pull_sample(gst::ClockTime::from_mseconds(16))
+                                .ok_or(gst::FlowError::Eos)?
+                        };
 
                     *last_frame_time_ref
                         .lock()
@@ -370,7 +384,6 @@ impl Video {
             frame,
             upload_frame,
             last_frame_time,
-            paused,
             looping: false,
             is_eos: false,
             restart_stream: false,
@@ -439,7 +452,7 @@ impl Video {
 
     /// Get if the media is paused or not.
     pub fn paused(&self) -> bool {
-        self.0.borrow().paused.load(Ordering::SeqCst)
+        self.0.borrow().paused()
     }
 
     /// Jumps to a specific position in the media.
@@ -461,8 +474,8 @@ impl Video {
     }
 
     /// Get the current playback position in time.
-    pub fn position(&self) -> std::time::Duration {
-        std::time::Duration::from_nanos(
+    pub fn position(&self) -> Duration {
+        Duration::from_nanos(
             self.0
                 .borrow()
                 .source
@@ -472,7 +485,7 @@ impl Video {
     }
 
     /// Get the media duration.
-    pub fn duration(&self) -> std::time::Duration {
+    pub fn duration(&self) -> Duration {
         self.0.borrow().duration
     }
 
