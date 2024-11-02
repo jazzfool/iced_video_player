@@ -41,6 +41,7 @@ impl From<u64> for Position {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Internal {
     pub(crate) id: u64,
 
@@ -174,6 +175,7 @@ impl Internal {
 }
 
 /// A multimedia video loaded from a URI (e.g., a local file path or HTTP stream).
+#[derive(Debug)]
 pub struct Video(pub(crate) RefCell<Internal>);
 
 impl Drop for Video {
