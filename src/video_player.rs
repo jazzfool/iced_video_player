@@ -187,7 +187,7 @@ where
             let last_frame_time = inner
                 .last_frame_time
                 .lock()
-                .map(|time| time.clone())
+                .map(|time| *time)
                 .unwrap_or_else(|_| Instant::now());
             inner.set_av_offset(Instant::now() - last_frame_time);
         }
@@ -270,7 +270,7 @@ where
 
                 if let Some(on_subtitle_text) = &self.on_subtitle_text {
                     if inner.upload_text.swap(false, Ordering::SeqCst) {
-                        if let Some(text) = inner.subtitle_text.try_lock().ok() {
+                        if let Ok(text) = inner.subtitle_text.try_lock() {
                             shell.publish(on_subtitle_text(text.clone()));
                         }
                     }

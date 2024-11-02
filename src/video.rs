@@ -206,7 +206,7 @@ impl Video {
             .map_err(|_| Error::Cast)?;
 
         let video_sink: gst::Element = pipeline.property("video-sink");
-        let pad = video_sink.pads().get(0).cloned().unwrap();
+        let pad = video_sink.pads().first().cloned().unwrap();
         let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
         let bin = pad
             .parent_element()
@@ -328,7 +328,7 @@ impl Video {
 
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
-                    if let Some(at) = clear_subtitles_at.clone() {
+                    if let Some(at) = clear_subtitles_at {
                         if Instant::now() >= at {
                             *subtitle_text_ref
                                 .lock()
@@ -607,5 +607,5 @@ fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
         }
     }
 
-    return rgba;
+    rgba
 }

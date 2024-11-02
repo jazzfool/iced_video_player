@@ -1,7 +1,7 @@
 use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map::Entry, BTreeMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -13,20 +13,19 @@ struct Uniforms {
     rect: [f32; 4],
 }
 
+struct VideoEntry {
+    texture_y: wgpu::Texture,
+    texture_uv: wgpu::Texture,
+    uniforms: wgpu::Buffer,
+    bg0: wgpu::BindGroup,
+    alive: Arc<AtomicBool>,
+}
+
 struct VideoPipeline {
     pipeline: wgpu::RenderPipeline,
     bg0_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    textures: BTreeMap<
-        u64,
-        (
-            wgpu::Texture,
-            wgpu::Texture,
-            wgpu::Buffer,
-            wgpu::BindGroup,
-            Arc<AtomicBool>,
-        ),
-    >,
+    videos: BTreeMap<u64, VideoEntry>,
 }
 
 impl VideoPipeline {
@@ -130,7 +129,7 @@ impl VideoPipeline {
             pipeline,
             bg0_layout,
             sampler,
-            textures: BTreeMap::new(),
+            videos: BTreeMap::new(),
         }
     }
 
@@ -143,7 +142,7 @@ impl VideoPipeline {
         (width, height): (u32, u32),
         frame: &[u8],
     ) {
-        if !self.textures.contains_key(&video_id) {
+        if let Entry::Vacant(entry) = self.videos.entry(video_id) {
             let texture_y = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("iced_video_player texture"),
                 size: wgpu::Extent3d {
@@ -230,13 +229,20 @@ impl VideoPipeline {
                 ],
             });
 
-            self.textures.insert(
-                video_id,
-                (texture_y, texture_uv, buffer, bind_group, Arc::clone(alive)),
-            );
+            entry.insert(VideoEntry {
+                texture_y,
+                texture_uv,
+                uniforms: buffer,
+                bg0: bind_group,
+                alive: Arc::clone(alive),
+            });
         }
 
-        let (texture_y, texture_uv, _, _, _) = self.textures.get(&video_id).unwrap();
+        let VideoEntry {
+            texture_y,
+            texture_uv,
+            ..
+        } = self.videos.get(&video_id).unwrap();
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -281,21 +287,21 @@ impl VideoPipeline {
 
     fn cleanup(&mut self) {
         let ids: Vec<_> = self
-            .textures
+            .videos
             .iter()
-            .filter_map(|(id, (_, _, _, _, alive))| (!alive.load(Ordering::SeqCst)).then_some(*id))
+            .filter_map(|(id, entry)| (!entry.alive.load(Ordering::SeqCst)).then_some(*id))
             .collect();
         for id in ids {
-            if let Some((texture_y, texture_uv, buffer, _, _)) = self.textures.remove(&id) {
-                texture_y.destroy();
-                texture_uv.destroy();
-                buffer.destroy();
+            if let Some(video) = self.videos.remove(&id) {
+                video.texture_y.destroy();
+                video.texture_uv.destroy();
+                video.uniforms.destroy();
             }
         }
     }
 
     fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
-        if let Some((_, _, buffer, _, _)) = self.textures.get(&video_id) {
+        if let Some(video) = self.videos.get(&video_id) {
             let uniforms = Uniforms {
                 rect: [
                     bounds.x,
@@ -304,7 +310,7 @@ impl VideoPipeline {
                     bounds.y + bounds.height,
                 ],
             };
-            queue.write_buffer(buffer, 0, unsafe {
+            queue.write_buffer(&video.uniforms, 0, unsafe {
                 std::slice::from_raw_parts(
                     &uniforms as *const _ as *const u8,
                     std::mem::size_of::<Uniforms>(),
@@ -322,7 +328,7 @@ impl VideoPipeline {
         viewport: &iced::Rectangle<u32>,
         video_id: u64,
     ) {
-        if let Some((_, _, _, bind_group, _)) = self.textures.get(&video_id) {
+        if let Some(video) = self.videos.get(&video_id) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("iced_video_player render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -339,7 +345,7 @@ impl VideoPipeline {
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, bind_group, &[]);
+            pass.set_bind_group(0, &video.bg0, &[]);
             pass.set_viewport(
                 viewport.x as _,
                 viewport.y as _,
