@@ -156,7 +156,7 @@ where
         _cursor: advanced::mouse::Cursor,
         _viewport: &iced::Rectangle,
     ) {
-        let mut inner = self.video.0.borrow_mut();
+        let mut inner = self.video.write();
 
         // bounds based on `Image::draw`
         let image_size = iced::Size::new(inner.width as f32, inner.height as f32);
@@ -215,7 +215,7 @@ where
         shell: &mut advanced::Shell<'_, Message>,
         _viewport: &iced::Rectangle,
     ) -> Status {
-        let mut inner = self.video.0.borrow_mut();
+        let mut inner = self.video.write();
 
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
             if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
