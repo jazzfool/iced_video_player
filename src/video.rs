@@ -320,6 +320,7 @@ impl Video {
                         .map_err(|_| gst::FlowError::Error)? = Instant::now();
 
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
+                    let pts = buffer.pts().unwrap_or_default();
                     let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
 
                     let mut frame = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
@@ -329,7 +330,7 @@ impl Video {
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
                     if let Some(at) = clear_subtitles_at {
-                        if Instant::now() >= at {
+                        if pts >= at {
                             *subtitle_text_ref
                                 .lock()
                                 .map_err(|_| gst::FlowError::Error)? = None;
@@ -343,7 +344,8 @@ impl Video {
                         .and_then(|sink| sink.try_pull_sample(gst::ClockTime::from_seconds(0)));
                     if let Some(text) = text {
                         let text = text.buffer().ok_or(gst::FlowError::Error)?;
-                        let duration = text.duration();
+                        let pts = text.pts().unwrap_or_default();
+                        let duration = text.duration().unwrap_or(gst::ClockTime::ZERO);
                         let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
 
                         let text = html_escape::decode_html_entities(
@@ -356,9 +358,7 @@ impl Video {
                             .map_err(|_| gst::FlowError::Error)? = Some(text);
                         upload_text_ref.store(true, Ordering::SeqCst);
 
-                        clear_subtitles_at = duration.map(|duration| {
-                            Instant::now() + Duration::from_nanos(duration.nseconds())
-                        });
+                        clear_subtitles_at = Some(pts + duration);
                     }
 
                     Ok(())
