@@ -192,16 +192,24 @@ where
             inner.set_av_offset(Instant::now() - last_frame_time);
         }
 
-        renderer.draw_primitive(
-            drawing_bounds,
-            VideoPrimitive::new(
-                inner.id,
-                Arc::clone(&inner.alive),
-                Arc::clone(&inner.frame),
-                (inner.width as _, inner.height as _),
-                upload_frame,
-            ),
-        );
+        let render = |renderer: &mut Renderer| {
+            renderer.draw_primitive(
+                drawing_bounds,
+                VideoPrimitive::new(
+                    inner.id,
+                    Arc::clone(&inner.alive),
+                    Arc::clone(&inner.frame),
+                    (inner.width as _, inner.height as _),
+                    upload_frame,
+                ),
+            );
+        };
+
+        if adjusted_fit.width > bounds.width || adjusted_fit.height > bounds.height {
+            renderer.with_layer(bounds, render);
+        } else {
+            render(renderer);
+        }
     }
 
     fn on_event(
