@@ -240,24 +240,33 @@ impl Video {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
 
+        // We need to ensure we stop the pipeline if we hit an error,
+        // or else there may be audio left playing in the background.
+        macro_rules! cleanup {
+            ($expr:expr) => {
+                $expr.map_err(|e| {
+                    let _ = pipeline.set_state(gst::State::Null);
+                    e
+                })
+            };
+        }
+
         let pad = video_sink.pads().first().cloned().unwrap();
 
-        pipeline.set_state(gst::State::Playing)?;
+        cleanup!(pipeline.set_state(gst::State::Playing))?;
 
         // wait for up to 5 seconds until the decoder gets the source capabilities
-        pipeline.state(gst::ClockTime::from_seconds(5)).0?;
+        cleanup!(pipeline.state(gst::ClockTime::from_seconds(5)).0)?;
 
         // extract resolution and framerate
         // TODO(jazzfool): maybe we want to extract some other information too?
-        let caps = pad.current_caps().ok_or(Error::Caps)?;
-        let s = caps.structure(0).ok_or(Error::Caps)?;
-        let width = s.get::<i32>("width").map_err(|_| Error::Caps)?;
-        let height = s.get::<i32>("height").map_err(|_| Error::Caps)?;
+        let caps = cleanup!(pad.current_caps().ok_or(Error::Caps))?;
+        let s = cleanup!(caps.structure(0).ok_or(Error::Caps))?;
+        let width = cleanup!(s.get::<i32>("width").map_err(|_| Error::Caps))?;
+        let height = cleanup!(s.get::<i32>("height").map_err(|_| Error::Caps))?;
         // resolution should be mod4
         let width = ((width + 4 - 1) / 4) * 4;
-        let framerate = s
-            .get::<gst::Fraction>("framerate")
-            .map_err(|_| Error::Caps)?;
+        let framerate = cleanup!(s.get::<gst::Fraction>("framerate").map_err(|_| Error::Caps))?;
         let framerate = framerate.numer() as f64 / framerate.denom() as f64;
 
         if framerate.is_nan()
@@ -265,6 +274,7 @@ impl Video {
             || framerate < 0.0
             || framerate.abs() < f64::EPSILON
         {
+            let _ = pipeline.set_state(gst::State::Null);
             return Err(Error::Framerate(framerate));
         }
 
