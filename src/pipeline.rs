@@ -346,15 +346,13 @@ impl VideoPipeline {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &video.bg0, &[]);
-            pass.set_viewport(
+            pass.set_scissor_rect(
                 viewport.x as _,
                 viewport.y as _,
                 viewport.width as _,
                 viewport.height as _,
-                0.0,
-                1.0,
             );
-            pass.draw(0..4, 0..1);
+            pass.draw(0..6, 0..1);
         }
     }
 }
@@ -394,7 +392,7 @@ impl Primitive for VideoPrimitive {
         format: wgpu::TextureFormat,
         storage: &mut iced_wgpu::primitive::Storage,
         bounds: &iced::Rectangle,
-        _viewport: &iced_wgpu::graphics::Viewport,
+        viewport: &iced_wgpu::graphics::Viewport,
     ) {
         if !storage.has::<VideoPipeline>() {
             storage.store(VideoPipeline::new(device, format));
@@ -413,7 +411,7 @@ impl Primitive for VideoPrimitive {
             );
         }
 
-        pipeline.prepare(queue, self.video_id, bounds);
+        pipeline.prepare(queue, self.video_id, &(*bounds * viewport.projection()));
     }
 
     fn render(

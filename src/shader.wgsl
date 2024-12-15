@@ -21,20 +21,18 @@ var<uniform> uniforms: Uniforms;
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
-    let quad = array<vec2<f32>, 6>(
-        uniforms.rect.xy,
-        uniforms.rect.zy,
-        uniforms.rect.xw,
-        uniforms.rect.zy,
-        uniforms.rect.zw,
-        uniforms.rect.xw,
+    var quad = array<vec4<f32>, 6>(
+        vec4<f32>(uniforms.rect.xy, 0.0, 0.0),
+        vec4<f32>(uniforms.rect.zy, 1.0, 0.0),
+        vec4<f32>(uniforms.rect.xw, 0.0, 1.0),
+        vec4<f32>(uniforms.rect.zy, 1.0, 0.0),
+        vec4<f32>(uniforms.rect.zw, 1.0, 1.0),
+        vec4<f32>(uniforms.rect.xw, 0.0, 1.0),
     );
 
     var out: VertexOutput;
-    out.uv = vec2<f32>(0.0);
-    out.uv.x = select(0.0, 2.0, in_vertex_index == 1u);
-    out.uv.y = select(0.0, 2.0, in_vertex_index == 2u);
-    out.position = vec4<f32>(out.uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 1.0, 1.0);
+    out.uv = quad[in_vertex_index].zw;
+    out.position = vec4<f32>(quad[in_vertex_index].xy, 1.0, 1.0);
     return out;
 }
 
