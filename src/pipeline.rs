@@ -2,8 +2,9 @@ use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
 use std::{
     collections::{btree_map::Entry, BTreeMap},
+    num::NonZero,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -11,14 +12,19 @@ use std::{
 #[repr(C)]
 struct Uniforms {
     rect: [f32; 4],
+    // because wgpu min_uniform_buffer_offset_alignment
+    _pad: [u8; 240],
 }
 
 struct VideoEntry {
     texture_y: wgpu::Texture,
     texture_uv: wgpu::Texture,
-    uniforms: wgpu::Buffer,
+    instances: wgpu::Buffer,
     bg0: wgpu::BindGroup,
     alive: Arc<AtomicBool>,
+
+    prepare_index: AtomicUsize,
+    render_index: AtomicUsize,
 }
 
 struct VideoPipeline {
@@ -69,7 +75,7 @@ impl VideoPipeline {
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
+                        has_dynamic_offset: true,
                         min_binding_size: None,
                     },
                     count: None,
@@ -195,9 +201,9 @@ impl VideoPipeline {
                 array_layer_count: None,
             });
 
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            let instances = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("iced_video_player uniform buffer"),
-                size: std::mem::size_of::<Uniforms>() as _,
+                size: 256 * std::mem::size_of::<Uniforms>() as u64, // max 256 video players per frame
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
             });
@@ -221,9 +227,9 @@ impl VideoPipeline {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &buffer,
+                            buffer: &instances,
                             offset: 0,
-                            size: None,
+                            size: Some(NonZero::new(std::mem::size_of::<Uniforms>() as _).unwrap()),
                         }),
                     },
                 ],
@@ -232,9 +238,12 @@ impl VideoPipeline {
             entry.insert(VideoEntry {
                 texture_y,
                 texture_uv,
-                uniforms: buffer,
+                instances,
                 bg0: bind_group,
                 alive: Arc::clone(alive),
+
+                prepare_index: AtomicUsize::new(0),
+                render_index: AtomicUsize::new(0),
             });
         }
 
@@ -295,13 +304,13 @@ impl VideoPipeline {
             if let Some(video) = self.videos.remove(&id) {
                 video.texture_y.destroy();
                 video.texture_uv.destroy();
-                video.uniforms.destroy();
+                video.instances.destroy();
             }
         }
     }
 
     fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
-        if let Some(video) = self.videos.get(&video_id) {
+        if let Some(video) = self.videos.get_mut(&video_id) {
             let uniforms = Uniforms {
                 rect: [
                     bounds.x,
@@ -309,13 +318,21 @@ impl VideoPipeline {
                     bounds.x + bounds.width,
                     bounds.y + bounds.height,
                 ],
+                _pad: [0; 240],
             };
-            queue.write_buffer(&video.uniforms, 0, unsafe {
-                std::slice::from_raw_parts(
-                    &uniforms as *const _ as *const u8,
-                    std::mem::size_of::<Uniforms>(),
-                )
-            });
+            queue.write_buffer(
+                &video.instances,
+                (video.prepare_index.load(Ordering::Relaxed) * std::mem::size_of::<Uniforms>())
+                    as u64,
+                unsafe {
+                    std::slice::from_raw_parts(
+                        &uniforms as *const _ as *const u8,
+                        std::mem::size_of::<Uniforms>(),
+                    )
+                },
+            );
+            video.prepare_index.fetch_add(1, Ordering::Relaxed);
+            video.render_index.store(0, Ordering::Relaxed);
         }
 
         self.cleanup();
@@ -325,7 +342,7 @@ impl VideoPipeline {
         &self,
         target: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
-        viewport: &iced::Rectangle<u32>,
+        clip: &iced::Rectangle<u32>,
         video_id: u64,
     ) {
         if let Some(video) = self.videos.get(&video_id) {
@@ -345,14 +362,19 @@ impl VideoPipeline {
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &video.bg0, &[]);
-            pass.set_scissor_rect(
-                viewport.x as _,
-                viewport.y as _,
-                viewport.width as _,
-                viewport.height as _,
+            pass.set_bind_group(
+                0,
+                &video.bg0,
+                &[
+                    (video.render_index.load(Ordering::Relaxed) * std::mem::size_of::<Uniforms>())
+                        as u32,
+                ],
             );
+            pass.set_scissor_rect(clip.x as _, clip.y as _, clip.width as _, clip.height as _);
             pass.draw(0..6, 0..1);
+
+            video.prepare_index.store(0, Ordering::Relaxed);
+            video.render_index.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -411,7 +433,15 @@ impl Primitive for VideoPrimitive {
             );
         }
 
-        pipeline.prepare(queue, self.video_id, &(*bounds * viewport.projection()));
+        pipeline.prepare(
+            queue,
+            self.video_id,
+            &(*bounds
+                * iced::Transformation::orthographic(
+                    viewport.logical_size().width as _,
+                    viewport.logical_size().height as _,
+                )),
+        );
     }
 
     fn render(
