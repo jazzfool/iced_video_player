@@ -189,7 +189,12 @@ impl Drop for Video {
 
         inner.alive.store(false, Ordering::SeqCst);
         if let Some(worker) = inner.worker.take() {
-            worker.join().expect("failed to stop video thread");
+            if let Err(err) = worker.join() {
+                match err.downcast_ref::<String>() {
+                    Some(e) => log::error!("Video thread panicked: {e}"),
+                    None => log::error!("Video thread panicked with unknown reason"),
+                }
+            }
         }
     }
 }
