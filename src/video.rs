@@ -42,6 +42,26 @@ impl From<u64> for Position {
 }
 
 #[derive(Debug)]
+pub(crate) struct Frame(gst::Sample);
+
+impl Frame {
+    pub fn new() -> Self {
+        Self(gst::Sample::builder().build())
+    }
+    pub fn store(&mut self, sample: gst::Sample) -> Option<()> {
+        if sample.buffer().is_some() {
+            self.0 = sample;
+            Some(())
+        } else {
+            None
+        }
+    }
+    pub fn readable(&self) -> Option<gst::BufferMap<gst::buffer::Readable>> {
+        self.0.buffer().map(|x| x.map_readable().ok()).flatten()
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct Internal {
     pub(crate) id: u64,
 
@@ -57,7 +77,7 @@ pub(crate) struct Internal {
     pub(crate) speed: f64,
     pub(crate) sync_av: bool,
 
-    pub(crate) frame: Arc<Mutex<Vec<u8>>>,
+    pub(crate) frame: Arc<Mutex<Frame>>,
     pub(crate) upload_frame: Arc<AtomicBool>,
     pub(crate) last_frame_time: Arc<Mutex<Instant>>,
     pub(crate) looping: bool,
@@ -222,7 +242,6 @@ impl Video {
         let video_sink = video_sink.downcast::<gst_app::AppSink>().unwrap();
 
         let text_sink: gst::Element = pipeline.property("text-sink");
-        //let pad = text_sink.pads().get(0).cloned().unwrap();
         let text_sink = text_sink.downcast::<gst_app::AppSink>().unwrap();
 
         Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
@@ -293,11 +312,7 @@ impl Video {
         let sync_av = pipeline.has_property("av-offset", None);
 
         // NV12 = 12bpp
-        let frame = Arc::new(Mutex::new(vec![
-            0u8;
-            (width as usize * height as usize * 3)
-                .div_ceil(2)
-        ]));
+        let frame = Arc::new(Mutex::new(Frame::new()));
         let upload_frame = Arc::new(AtomicBool::new(false));
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));
@@ -336,11 +351,11 @@ impl Video {
 
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                     let pts = buffer.pts().unwrap_or_default();
-                    let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
-
-                    let mut frame = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
-                    let frame_len = frame.len();
-                    frame.copy_from_slice(&map.as_slice()[..frame_len]);
+                    {
+                        let mut frame_guard =
+                            frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
+                        *frame_guard = Frame(sample);
+                    }
 
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
@@ -574,15 +589,13 @@ impl Video {
                     while !inner.upload_frame.load(Ordering::SeqCst) {
                         std::hint::spin_loop();
                     }
+                    let frame_guard = inner.frame.lock().map_err(|_| Error::Lock)?;
+                    let frame = frame_guard.readable().ok_or(Error::Lock)?;
+
                     Ok(img::Handle::from_rgba(
                         inner.width as u32 / downscale,
                         inner.height as u32 / downscale,
-                        yuv_to_rgba(
-                            &inner.frame.lock().map_err(|_| Error::Lock)?,
-                            width as _,
-                            height as _,
-                            downscale,
-                        ),
+                        yuv_to_rgba(frame.as_slice(), width as _, height as _, downscale),
                     ))
                 })
                 .collect()
