@@ -1,13 +1,13 @@
-use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
-use std::num::NonZero;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-
 use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
-
-use crate::video::Frame;
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    num::NonZero,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 
 #[repr(C)]
 struct Uniforms {
@@ -203,8 +203,7 @@ impl VideoPipeline {
 
             let instances = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("iced_video_player uniform buffer"),
-                size: 256 * std::mem::size_of::<Uniforms>() as u64, /* max 256 video players per
-                                                                     * frame */
+                size: 256 * std::mem::size_of::<Uniforms>() as u64, // max 256 video players per frame
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
             });
@@ -384,7 +383,7 @@ impl VideoPipeline {
 pub(crate) struct VideoPrimitive {
     video_id: u64,
     alive: Arc<AtomicBool>,
-    frame: Arc<Mutex<Frame>>,
+    frame: Arc<Mutex<Vec<u8>>>,
     size: (u32, u32),
     upload_frame: bool,
 }
@@ -393,7 +392,7 @@ impl VideoPrimitive {
     pub fn new(
         video_id: u64,
         alive: Arc<AtomicBool>,
-        frame: Arc<Mutex<Frame>>,
+        frame: Arc<Mutex<Vec<u8>>>,
         size: (u32, u32),
         upload_frame: bool,
     ) -> Self {
@@ -424,23 +423,21 @@ impl Primitive for VideoPrimitive {
         let pipeline = storage.get_mut::<VideoPipeline>().unwrap();
 
         if self.upload_frame {
-            if let Some(buffer) = self.frame.lock().expect("lock frame mutex").readable() {
-                pipeline.upload(
-                    device,
-                    queue,
-                    self.video_id,
-                    &self.alive,
-                    self.size,
-                    buffer.as_slice(),
-                );
-            }
+            pipeline.upload(
+                device,
+                queue,
+                self.video_id,
+                &self.alive,
+                self.size,
+                self.frame.lock().expect("lock frame mutex").as_slice(),
+            );
         }
 
         pipeline.prepare(
             queue,
             self.video_id,
-            &(*bounds *
-                iced::Transformation::orthographic(
+            &(*bounds
+                * iced::Transformation::orthographic(
                     viewport.logical_size().width as _,
                     viewport.logical_size().height as _,
                 )),
