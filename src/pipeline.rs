@@ -9,6 +9,8 @@ use std::{
     },
 };
 
+use crate::video::Frame;
+
 #[repr(C)]
 struct Uniforms {
     rect: [f32; 4],
@@ -383,7 +385,7 @@ impl VideoPipeline {
 pub(crate) struct VideoPrimitive {
     video_id: u64,
     alive: Arc<AtomicBool>,
-    frame: Arc<Mutex<Vec<u8>>>,
+    frame: Arc<Mutex<Frame>>,
     size: (u32, u32),
     upload_frame: bool,
 }
@@ -392,7 +394,7 @@ impl VideoPrimitive {
     pub fn new(
         video_id: u64,
         alive: Arc<AtomicBool>,
-        frame: Arc<Mutex<Vec<u8>>>,
+        frame: Arc<Mutex<Frame>>,
         size: (u32, u32),
         upload_frame: bool,
     ) -> Self {
@@ -423,14 +425,16 @@ impl Primitive for VideoPrimitive {
         let pipeline = storage.get_mut::<VideoPipeline>().unwrap();
 
         if self.upload_frame {
-            pipeline.upload(
-                device,
-                queue,
-                self.video_id,
-                &self.alive,
-                self.size,
-                self.frame.lock().expect("lock frame mutex").as_slice(),
-            );
+            if let Some(readable) = self.frame.lock().expect("lock frame mutex").readable() {
+                pipeline.upload(
+                    device,
+                    queue,
+                    self.video_id,
+                    &self.alive,
+                    self.size,
+                    readable.as_slice(),
+                );
+            }
         }
 
         pipeline.prepare(
