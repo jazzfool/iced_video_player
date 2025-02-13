@@ -117,6 +117,9 @@ impl Internal {
             )?,
         };
 
+        *self.subtitle_text.lock().expect("lock subtitle_text") = None;
+        self.upload_text.store(true, Ordering::SeqCst);
+
         Ok(())
     }
 
@@ -218,7 +221,7 @@ impl Video {
     pub fn new(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!("playbin uri=\"{}\" text-sink=\"appsink name=iced_text sync=true caps=text/x-raw\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
+        let pipeline = format!("playbin uri=\"{}\" text-sink=\"appsink name=iced_text sync=true drop=true caps=text/x-raw\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str());
         let pipeline = gst::parse::launch(pipeline.as_ref())?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
@@ -342,8 +345,10 @@ impl Video {
                         .lock()
                         .map_err(|_| gst::FlowError::Error)? = Instant::now();
 
+                    let frame_segment = sample.segment().cloned().ok_or(gst::FlowError::Error)?;
                     let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
-                    let pts = buffer.pts().unwrap_or_default();
+                    let frame_pts = buffer.pts().ok_or(gst::FlowError::Error)?;
+                    let frame_duration = buffer.duration().ok_or(gst::FlowError::Error)?;
                     {
                         let mut frame_guard =
                             frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
@@ -353,7 +358,7 @@ impl Video {
                     upload_frame_ref.swap(true, Ordering::SeqCst);
 
                     if let Some(at) = clear_subtitles_at {
-                        if pts >= at {
+                        if frame_pts >= at {
                             *subtitle_text_ref
                                 .lock()
                                 .map_err(|_| gst::FlowError::Error)? = None;
@@ -366,22 +371,39 @@ impl Video {
                         .as_ref()
                         .and_then(|sink| sink.try_pull_sample(gst::ClockTime::from_seconds(0)));
                     if let Some(text) = text {
+                        let text_segment = text.segment().ok_or(gst::FlowError::Error)?;
                         let text = text.buffer().ok_or(gst::FlowError::Error)?;
-                        let pts = text.pts().unwrap_or_default();
-                        let duration = text.duration().unwrap_or(gst::ClockTime::ZERO);
-                        let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
+                        let text_pts = text.pts().ok_or(gst::FlowError::Error)?;
+                        let text_duration = text.duration().ok_or(gst::FlowError::Error)?;
 
-                        let text = html_escape::decode_html_entities(
-                            std::str::from_utf8(map.as_slice())
-                                .map_err(|_| gst::FlowError::Error)?,
-                        )
-                        .to_string();
-                        *subtitle_text_ref
-                            .lock()
-                            .map_err(|_| gst::FlowError::Error)? = Some(text);
-                        upload_text_ref.store(true, Ordering::SeqCst);
+                        let frame_running_time = frame_segment.to_running_time(frame_pts).value();
+                        let frame_running_time_end = frame_segment
+                            .to_running_time(frame_pts + frame_duration)
+                            .value();
 
-                        clear_subtitles_at = Some(pts + duration);
+                        let text_running_time = text_segment.to_running_time(text_pts).value();
+                        let text_running_time_end = text_segment
+                            .to_running_time(text_pts + text_duration)
+                            .value();
+
+                        // see gst-plugins-base/ext/pango/gstbasetextoverlay.c (gst_base_text_overlay_video_chain)
+                        // as an example of how to correctly synchronize the text+video segments
+                        if text_running_time_end > frame_running_time
+                            && frame_running_time_end > text_running_time
+                        {
+                            let duration = text.duration().unwrap_or(gst::ClockTime::ZERO);
+                            let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
+
+                            let text = std::str::from_utf8(map.as_slice())
+                                .map_err(|_| gst::FlowError::Error)?
+                                .to_string();
+                            *subtitle_text_ref
+                                .lock()
+                                .map_err(|_| gst::FlowError::Error)? = Some(text);
+                            upload_text_ref.store(true, Ordering::SeqCst);
+
+                            clear_subtitles_at = Some(text_pts + duration);
+                        }
                     }
 
                     Ok(())

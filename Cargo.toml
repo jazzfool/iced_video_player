@@ -25,7 +25,6 @@ glib = "0.20" # gobject traits and error type
 log = "0.4"
 thiserror = "1"
 url = "2" # media uri
-html-escape = "0.2.13"
 
 [package.metadata.nix]
 systems = ["x86_64-linux"]
