@@ -45,17 +45,10 @@ impl From<u64> for Position {
 pub(crate) struct Frame(gst::Sample);
 
 impl Frame {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self(gst::Sample::builder().build())
     }
-    pub fn store(&mut self, sample: gst::Sample) -> Option<()> {
-        if sample.buffer().is_some() {
-            self.0 = sample;
-            Some(())
-        } else {
-            None
-        }
-    }
+
     pub fn readable(&self) -> Option<gst::BufferMap<gst::buffer::Readable>> {
         self.0.buffer().map(|x| x.map_readable().ok()).flatten()
     }
@@ -312,7 +305,7 @@ impl Video {
         let sync_av = pipeline.has_property("av-offset", None);
 
         // NV12 = 12bpp
-        let frame = Arc::new(Mutex::new(Frame::new()));
+        let frame = Arc::new(Mutex::new(Frame::empty()));
         let upload_frame = Arc::new(AtomicBool::new(false));
         let alive = Arc::new(AtomicBool::new(true));
         let last_frame_time = Arc::new(Mutex::new(Instant::now()));

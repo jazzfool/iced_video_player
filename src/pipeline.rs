@@ -1,3 +1,4 @@
+use crate::video::Frame;
 use iced_wgpu::primitive::Primitive;
 use iced_wgpu::wgpu;
 use std::{
@@ -8,8 +9,6 @@ use std::{
         Arc, Mutex,
     },
 };
-
-use crate::video::Frame;
 
 #[repr(C)]
 struct Uniforms {
