@@ -50,7 +50,7 @@ impl Frame {
     }
 
     pub fn readable(&self) -> Option<gst::BufferMap<gst::buffer::Readable>> {
-        self.0.buffer().map(|x| x.map_readable().ok()).flatten()
+        self.0.buffer().and_then(|x| x.map_readable().ok())
     }
 }
 

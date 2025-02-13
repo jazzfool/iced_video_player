@@ -107,8 +107,8 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for VideoPlayer<'a, Message, Theme, Renderer>
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for VideoPlayer<'_, Message, Theme, Renderer>
 where
     Message: Clone,
     Renderer: PrimitiveRenderer,
