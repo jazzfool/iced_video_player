@@ -563,7 +563,13 @@ impl Video {
 
     /// Get the current subtitle URL.
     pub fn subtitle_url(&self) -> Option<url::Url> {
-        url::Url::parse(&self.read().source.property::<String>("suburi")).ok()
+        url::Url::parse(
+            &self
+                .read()
+                .source
+                .property::<Option<String>>("current-suburi")?,
+        )
+        .ok()
     }
 
     /// Get the underlying GStreamer pipeline.
