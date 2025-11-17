@@ -2,6 +2,7 @@ use crate::Error;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_app::prelude::*;
+use gstreamer_video::VideoMeta;
 use iced::widget::image as img;
 use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
@@ -51,6 +52,16 @@ impl Frame {
 
     pub fn readable(&self) -> Option<gst::BufferMap<gst::buffer::Readable>> {
         self.0.buffer().and_then(|x| x.map_readable().ok())
+    }
+
+    /// Get the Y-plane stride (line pitch) in bytes from the frame's VideoMeta.
+    /// This is critical for proper NV12 decoding, as the stride may differ from width.
+    pub fn stride(&self) -> Option<u32> {
+        self.0.buffer().and_then(|buffer| {
+            buffer
+                .meta::<VideoMeta>()
+                .map(|meta| meta.stride()[0] as u32)
+        })
     }
 }
 
@@ -612,11 +623,12 @@ impl Video {
                     }
                     let frame_guard = inner.frame.lock().map_err(|_| Error::Lock)?;
                     let frame = frame_guard.readable().ok_or(Error::Lock)?;
+                    let stride = frame_guard.stride();
 
                     Ok(img::Handle::from_rgba(
                         inner.width as u32 / downscale,
                         inner.height as u32 / downscale,
-                        yuv_to_rgba(frame.as_slice(), width as _, height as _, downscale),
+                        yuv_to_rgba(frame.as_slice(), width as _, height as _, downscale, stride),
                     ))
                 })
                 .collect()
@@ -630,8 +642,17 @@ impl Video {
     }
 }
 
-fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
-    let uv_start = width * height;
+fn yuv_to_rgba(
+    yuv: &[u8],
+    width: u32,
+    height: u32,
+    downscale: u32,
+    stride: Option<u32>,
+) -> Vec<u8> {
+    // Use stride from VideoMeta if available, otherwise assume stride == width
+    let stride = stride.unwrap_or(width);
+
+    let uv_start = stride * height;
     let mut rgba = vec![];
 
     for y in 0..height / downscale {
@@ -639,11 +660,16 @@ fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
             let x_src = x * downscale;
             let y_src = y * downscale;
 
-            let uv_i = uv_start + width * (y_src / 2) + x_src / 2 * 2;
+            // NV12 memory layout with stride:
+            // Y plane: stride bytes per row, starting at offset 0
+            // UV plane: stride bytes per row (same stride), starting at offset stride * height
+            // Each pixel is 1 byte Y, and every 2x2 block shares 2 bytes (U, V)
+            let y_offset = (y_src * stride + x_src) as usize;
+            let uv_offset = (uv_start + (y_src / 2) * stride + (x_src / 2) * 2) as usize;
 
-            let y = yuv[(y_src * width + x_src) as usize] as f32;
-            let u = yuv[uv_i as usize] as f32;
-            let v = yuv[(uv_i + 1) as usize] as f32;
+            let y = yuv[y_offset] as f32;
+            let u = yuv[uv_offset] as f32;
+            let v = yuv[uv_offset + 1] as f32;
 
             let r = 1.164 * (y - 16.0) + 1.596 * (v - 128.0);
             let g = 1.164 * (y - 16.0) - 0.813 * (v - 128.0) - 0.391 * (u - 128.0);
