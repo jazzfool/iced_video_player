@@ -21,6 +21,7 @@ iced_wgpu = "0.13"
 gstreamer = "0.23"
 gstreamer-app = "0.23" # appsink
 gstreamer-base = "0.23" # basesrc
+gstreamer-video = "0.23" # VideoMeta
 glib = "0.20" # gobject traits and error type
 log = "0.4"
 thiserror = "1"

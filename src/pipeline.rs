@@ -148,7 +148,10 @@ impl VideoPipeline {
         alive: &Arc<AtomicBool>,
         (width, height): (u32, u32),
         frame: &[u8],
+        stride: Option<u32>,
     ) {
+        // Use stride from GStreamer's VideoMeta if available, otherwise assume stride == width
+        let stride = stride.unwrap_or(width);
         if let Entry::Vacant(entry) = self.videos.entry(video_id) {
             let texture_y = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("iced_video_player texture"),
@@ -261,10 +264,10 @@ impl VideoPipeline {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &frame[..(width * height) as usize],
+            &frame[..(stride * height) as usize],
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(stride),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {
@@ -281,10 +284,10 @@ impl VideoPipeline {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &frame[(width * height) as usize..],
+            &frame[(stride * height) as usize..],
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(stride),
                 rows_per_image: Some(height / 2),
             },
             wgpu::Extent3d {
@@ -424,7 +427,9 @@ impl Primitive for VideoPrimitive {
         let pipeline = storage.get_mut::<VideoPipeline>().unwrap();
 
         if self.upload_frame {
-            if let Some(readable) = self.frame.lock().expect("lock frame mutex").readable() {
+            let frame_guard = self.frame.lock().expect("lock frame mutex");
+            let stride = frame_guard.stride();
+            if let Some(readable) = frame_guard.readable() {
                 pipeline.upload(
                     device,
                     queue,
@@ -432,8 +437,9 @@ impl Primitive for VideoPrimitive {
                     &self.alive,
                     self.size,
                     readable.as_slice(),
+                    stride,
                 );
-            }
+            };
         }
 
         pipeline.prepare(
