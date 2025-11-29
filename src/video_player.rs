@@ -1,8 +1,8 @@
 use crate::{pipeline::VideoPrimitive, video::Video};
 use gstreamer as gst;
 use iced::{
-    advanced::{self, graphics::core::event::Status, layout, widget, Widget},
     Element,
+    advanced::{self, Widget, graphics::core::event::Status, layout, widget},
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
@@ -228,6 +228,7 @@ where
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
             if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
                 let mut restart_stream = false;
+                let emit_eos = !inner.restart_stream;
                 if inner.restart_stream {
                     restart_stream = true;
                     // Set flag to false to avoid potentially multiple seeks
@@ -247,7 +248,9 @@ where
                             };
                         }
                         gst::MessageView::Eos(_eos) => {
-                            if let Some(on_end_of_stream) = self.on_end_of_stream.clone() {
+                            if emit_eos
+                                && let Some(on_end_of_stream) = self.on_end_of_stream.clone()
+                            {
                                 shell.publish(on_end_of_stream);
                             }
                             if inner.looping {
