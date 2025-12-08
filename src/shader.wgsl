@@ -38,24 +38,19 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let yuv2r = vec3<f32>(1.164, 0.0, 1.596);
-    let yuv2g = vec3<f32>(1.164, -0.391, -0.813);
-    let yuv2b = vec3<f32>(1.164, 2.018, 0.0);
+    // BT.709 precomputed coefficents
+    let yuv2rgb = mat3x3<f32>(
+        1, 0, 1.5748,
+        1, -0.1873, -0.4681,
+        1, 1.8556, 0,
+    );
 
     var yuv = vec3<f32>(0.0);
-    yuv.x = textureSample(tex_y, s, in.uv).r - 0.0625;
-    yuv.y = textureSample(tex_uv, s, in.uv).r - 0.5;
-    yuv.z = textureSample(tex_uv, s, in.uv).g - 0.5;
+    yuv.x = (textureSample(tex_y, s, in.uv).r - 0.0625) / 0.8588;
+    yuv.y = (textureSample(tex_uv, s, in.uv).r - 0.5) / 0.8784;
+    yuv.z = (textureSample(tex_uv, s, in.uv).g - 0.5) / 0.8784;
 
-    var rgb = vec3<f32>(0.0);
-    rgb.x = dot(yuv, yuv2r);
-    rgb.y = dot(yuv, yuv2g);
-    rgb.z = dot(yuv, yuv2b);
-
-    let threshold = rgb <= vec3<f32>(0.04045);
-    let hi = pow((rgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
-    let lo = rgb * vec3<f32>(1.0 / 12.92);
-    rgb = select(hi, lo, threshold);
+    var rgb = clamp(yuv * yuv2rgb, vec3<f32>(0), vec3<f32>(1));
 
     return vec4<f32>(rgb, 1.0);
 }

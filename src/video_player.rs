@@ -2,7 +2,7 @@ use crate::{pipeline::VideoPrimitive, video::Video};
 use gstreamer as gst;
 use iced::{
     Element,
-    advanced::{self, Widget, graphics::core::event::Status, layout, widget},
+    advanced::{self, Widget, layout, widget},
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use log::error;
@@ -121,7 +121,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut widget::Tree,
         _renderer: &Renderer,
         limits: &layout::Limits,
@@ -212,17 +212,17 @@ where
         }
     }
 
-    fn on_event(
+    fn update(
         &mut self,
-        _state: &mut widget::Tree,
-        event: iced::Event,
+        _tree: &mut widget::Tree,
+        event: &iced::Event,
         _layout: advanced::Layout<'_>,
         _cursor: advanced::mouse::Cursor,
         _renderer: &Renderer,
         _clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         _viewport: &iced::Rectangle,
-    ) -> Status {
+    ) {
         let mut inner = self.video.write();
 
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
@@ -287,15 +287,12 @@ where
                     }
                 }
 
-                shell.request_redraw(iced::window::RedrawRequest::NextFrame);
+                shell.request_redraw();
             } else {
-                shell.request_redraw(iced::window::RedrawRequest::At(
+                shell.request_redraw_at(iced::window::RedrawRequest::At(
                     Instant::now() + Duration::from_millis(32),
                 ));
             }
-            Status::Captured
-        } else {
-            Status::Ignored
         }
     }
 }

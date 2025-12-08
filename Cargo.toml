@@ -16,8 +16,8 @@ exclude = [
 ]
 
 [dependencies]
-iced = { version = "0.13", features = ["image", "advanced", "wgpu"] }
-iced_wgpu = "0.13"
+iced = { version = "0.14", features = ["image", "advanced", "wgpu"] }
+iced_wgpu = "0.14"
 gstreamer = "0.23"
 gstreamer-app = "0.23" # appsink
 gstreamer-base = "0.23" # basesrc
