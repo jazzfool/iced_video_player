@@ -288,7 +288,6 @@ where
                 }
 
                 shell.request_redraw();
-                shell.capture_event();
             } else {
                 shell.request_redraw_at(iced::window::RedrawRequest::At(
                     Instant::now() + Duration::from_millis(32),
