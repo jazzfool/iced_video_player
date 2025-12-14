@@ -28,7 +28,7 @@ See the "minimal" example for a demonstration on how you could implement pausing
 use iced_video_player::{Video, VideoPlayer};
 
 fn main() -> iced::Result {
-    iced::run("Video Player", (), App::view)
+    iced::run((), App::view)
 }
 
 struct App {
@@ -44,7 +44,7 @@ impl Default for App {
 }
 
 impl App {
-    fn view(&self) -> iced::Element<()> {
+    fn view(&self) -> iced::Element<std::convert::Infallible> {
         VideoPlayer::new(&self.video).into()
     }
 }
